@@ -269,17 +269,25 @@ function cancelEdit() {
   S.editing = null;
 }
 
-function openEditor(rect, value, multiline, onSave) {
+function openEditor(rect, value, multiline, onSave, sizePt) {
   cancelEdit();
   const box = el('textarea', 'editor');
   box.value = value;
   const pad = 4;
+  // Match the text being replaced rather than a fixed size, and centre it in
+  // the box: a span's bbox spans ascender to descender, so text laid out from
+  // the top edge sits visibly high.
+  const fontPx = Math.max(9, toPx(sizePt || S.fontSize));
+  const boxH = Math.max(fontPx + 10, toPx(rect[3] - rect[1]) + pad * 2);
+  const inner = boxH - 8;                       // minus 2px border + 2px padding each side
   Object.assign(box.style, {
     left: toPx(rect[0]) - pad + 'px',
     top: toPx(rect[1]) - pad + 'px',
     width: Math.max(90, toPx(rect[2] - rect[0]) + pad * 3) + 'px',
-    height: Math.max(22, toPx(rect[3] - rect[1]) + pad * 2) + 'px',
-    fontSize: Math.max(11, toPx(S.fontSize)) + 'px',
+    height: boxH + 'px',
+    fontSize: fontPx + 'px',
+    lineHeight: multiline ? 1.3 : inner + 'px',
+    paddingTop: multiline ? '3px' : '0',
   });
   $('overlay').appendChild(box);
 
@@ -313,16 +321,17 @@ function editSpan(sp) {
     const res = await busyRun('Rewriting text…', 'edit_span', sp.id, text);
     if (res && res.shrunk) toast('Text was narrowed slightly to fit the line.');
     await refresh(false);
-  });
+  }, sp.size);
 }
 
 function editBlock(b) {
+  const first = b.lines[0] && b.lines[0].spans[0];
   openEditor(b.bbox, b.text, true, async (text) => {
     const res = await busyRun('Re-typesetting paragraph…', 'edit_block', b.id, text);
     if (res && res.overflow) toast('New text is longer than the original space.', 'err');
     else if (res && res.shrunk) toast('Text was shrunk slightly to fit.');
     await refresh(false);
-  });
+  }, first ? first.size : null);
 }
 
 /* ---- pointer driven tools ---- */
@@ -701,6 +710,10 @@ async function gotoPage(index) {
 
 function setTool(tool) {
   S.tool = tool;
+  if (tool === 'sign') {          // take the user to the signatures, not a dead end
+    showPane('sigs');
+    loadSigs();
+  }
   document.querySelectorAll('.tool').forEach((b) =>
     b.classList.toggle('active', b.dataset.tool === tool));
   drawInspector();
@@ -817,6 +830,16 @@ const ACTIONS = {
     Object.keys(TONES).map((k) => '<option>' + k + '</option>').join('') +
     '</select></div><p class="hint">Applied behind the existing page content.</p>',
     async (v) => { await run('background', null, TONES[v.tone] || [1, 1, 1]); await refresh(); }, 'Apply'),
+  signature: async () => {
+    showPane('sigs');
+    await loadSigs();
+    const saved = await run('sig_list');
+    if (!saved || !saved.length) {
+      toast('Add a signature image first, using the button in the panel.');
+      return;
+    }
+    toast('Pick a signature, then drag a box on the page.');
+  },
   image: () => { setTool('imagebox'); toast('Drag a box where the image should go.'); },
   bookmarks: () => promptBookmarks(),
 
@@ -1110,6 +1133,52 @@ $('pagenum').onchange = () => gotoPage((parseInt($('pagenum').value, 10) || 1) -
 $('zoomin').onclick = () => { S.fit = false; S.zoom = Math.min(5, S.zoom * 1.2); drawPage(); };
 $('zoomout').onclick = () => { S.fit = false; S.zoom = Math.max(0.15, S.zoom / 1.2); drawPage(); };
 $('zoomfit').onclick = () => { S.fit = !S.fit; drawPage(); };
+
+/* ---------- mouse wheel ---------- */
+// Ctrl+wheel zooms. Plain wheel scrolls the page, and rolls on to the next or
+// previous page once there is nothing left to scroll -- which is immediately
+// when the whole page already fits.
+
+let zoomTimer = null;
+let pageFlipAt = 0;
+
+function queueZoom() {
+  clearTimeout(zoomTimer);
+  zoomTimer = setTimeout(() => drawPage(), 90);
+  $('zoomlabel').textContent = Math.round(S.zoom * 100) + '%';
+}
+
+$('viewer').addEventListener('wheel', (e) => {
+  if (!S.info) return;
+
+  if (e.ctrlKey || e.metaKey) {
+    e.preventDefault();
+    S.fit = false;
+    const step = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    S.zoom = Math.max(0.15, Math.min(6, S.zoom * step));
+    queueZoom();
+    return;
+  }
+
+  const view = $('viewer');
+  const slack = view.scrollHeight - view.clientHeight;
+  const atTop = view.scrollTop <= 1;
+  const atBottom = view.scrollTop >= slack - 1;
+  const forward = e.deltaY > 0;
+
+  if (slack > 2 && !(forward ? atBottom : atTop)) return;   // normal scrolling
+
+  const now = Date.now();
+  if (now - pageFlipAt < 320) { e.preventDefault(); return; }  // one page per gesture
+  const next = S.page + (forward ? 1 : -1);
+  if (next < 0 || next >= S.info.page_count) return;          // let the edges rest
+  e.preventDefault();
+  pageFlipAt = now;
+  gotoPage(next).then(() => {
+    // Enter the new page from the edge the reader is travelling towards.
+    view.scrollTop = forward ? 0 : Math.max(0, view.scrollHeight - view.clientHeight);
+  });
+}, { passive: false });
 
 document.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {

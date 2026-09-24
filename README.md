@@ -68,6 +68,21 @@ selectable without changing how they look.
 **Also** — watermarks (text or image), page numbers, headers and footers, page
 backgrounds, hyperlinks, bookmarks, document properties, 25-step undo.
 
+## Mouse and keyboard
+
+| Action | Result |
+| --- | --- |
+| Wheel | Scroll the page; at the top or bottom edge, turn to the previous/next page |
+| Ctrl + wheel | Zoom in and out |
+| Ctrl+O / Ctrl+S | Open / Save |
+| Ctrl+Z / Ctrl+Y | Undo / Redo |
+| Ctrl+F | Find |
+| Page Up/Down, arrows | Previous / next page |
+| Esc | Cancel the current edit and return to the Select tool |
+
+When a page already fits the window there is nothing to scroll, so the wheel
+turns pages immediately.
+
 ## Requirements
 
 - Windows with the Edge WebView2 runtime (present on Windows 10/11 by default).

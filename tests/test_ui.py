@@ -87,15 +87,83 @@ def drive(window):
               "No matches")
 
         print("")
-        print("-- document tabs --")
-        check("one tab to start", js("document.querySelectorAll('.dtab').length"), 1)
+        print("")
+        print("-- wheel and editor --")
+        js("S.fit=false; S.zoom=1.25; drawPage()")
+        time.sleep(1.0)
+        before_zoom = js("S.zoom")
+        js("""document.getElementById('viewer').dispatchEvent(
+             new WheelEvent('wheel', {deltaY:-120, ctrlKey:true, bubbles:true, cancelable:true}))""")
+        time.sleep(0.6)
+        check("ctrl+wheel zooms in", js("S.zoom"), lambda z: z > before_zoom)
+        zoomed_in = js("S.zoom")
+        js("""document.getElementById('viewer').dispatchEvent(
+             new WheelEvent('wheel', {deltaY:120, ctrlKey:true, bubbles:true, cancelable:true}))""")
+        time.sleep(0.6)
+        check("ctrl+wheel zooms out", js("S.zoom"), lambda z: z < zoomed_in)
 
-        js("window.openOnStart(%s)" % json.dumps(HARD))
+        js("window.openOnStart(%s)" % json.dumps(HARD))   # 7 pages to page through
         for _ in range(60):
-            if js("document.querySelectorAll('.dtab').length") == 2:
+            if js("S.info && S.info.page_count") == 7:
                 break
             time.sleep(0.25)
-        check("second file opens its own tab",
+        js("S.fit=true; drawPage()")
+        time.sleep(1.4)
+        start_page = js("S.page")
+        js("""const v=document.getElementById('viewer');
+              v.scrollTop = v.scrollHeight;
+              v.dispatchEvent(new WheelEvent('wheel',{deltaY:200,bubbles:true,cancelable:true}))""")
+        time.sleep(1.3)
+        check("wheel at the end moves to the next page", js("S.page"),
+              lambda n: n == start_page + 1)
+        js("""const v=document.getElementById('viewer');
+              v.scrollTop = 0;
+              v.dispatchEvent(new WheelEvent('wheel',{deltaY:-200,bubbles:true,cancelable:true}))""")
+        time.sleep(1.3)
+        check("wheel at the start moves back a page", js("S.page"), start_page)
+
+        js("setTool('text')")
+        for _ in range(40):
+            if js("document.querySelectorAll('.hit').length"):
+                break
+            time.sleep(0.25)
+        span_size = js("""(function(){
+            const sp = S.layout.blocks[0].lines[0].spans[0];
+            editSpan(sp);
+            return sp.size;
+        })()""")
+        time.sleep(0.5)
+        metrics = js("""(function(){
+            const e = document.querySelector('.editor');
+            if (!e) return null;
+            const cs = getComputedStyle(e);
+            return {font: parseFloat(cs.fontSize),
+                    line: parseFloat(cs.lineHeight),
+                    height: parseFloat(cs.height),
+                    scale: S.scale};
+        })()""")
+        expected = (span_size or 0) * (metrics or {}).get("scale", 1)
+        check("editor font matches the text being edited",
+              round((metrics or {}).get("font", 0), 1),
+              lambda f: abs(f - expected) < 1.5)
+        check("single line is vertically centred",
+              metrics and round(metrics["line"] - (metrics["height"] - 8), 1),
+              lambda d: d is not None and abs(d) < 1.5)
+        js("cancelEdit(); setTool('select')")
+        time.sleep(0.3)
+
+        js("setTool('sign')")
+        time.sleep(0.8)
+        check("sign tool opens the signatures panel",
+              js("document.getElementById('pane-sigs').classList.contains('active')"), True)
+        check("signature tab is labelled clearly",
+              js("document.querySelectorAll('.tab')[4].textContent.trim()"),
+              lambda t: "Sign" in (t or ""))
+        js("setTool('select')")
+        time.sleep(0.4)
+
+        print("-- document tabs --")
+        check("each file opened its own tab",
               js("document.querySelectorAll('.dtab').length"), 2)
         check("new tab is active",
               js("document.querySelectorAll('.dtab')[1].classList.contains('on')"), True)
