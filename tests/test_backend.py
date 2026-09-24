@@ -88,7 +88,8 @@ def move_page():
 
 check("move", move_page)
 check("crop", lambda: pages.crop(fresh(), 0, [50, 50, 500, 700])["rect"][2])
-check("extract", lambda: pages.extract(fresh(), [0], os.path.join(OUT, "extract.pdf"))["pages"])
+check("extract", lambda: pages.extract(fresh(), [0],
+      os.path.join(OUT, "extract.pdf"))[1]["pages"])
 check("merge", lambda: pages.merge(fresh(), [SRC])["page_count"])
 
 

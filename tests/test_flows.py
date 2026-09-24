@@ -445,6 +445,77 @@ def save_all_writes_everything():
 check("save all clears every tab", save_all_writes_everything,
       lambda r: r == "saved=2 left_dirty=0")
 
+print("")
+print("== extracting pages ==")
+
+
+def extract_into_a_tab():
+    api = Api()
+    api.open_path(HARD)
+    result = api.page_extract([0, 2, 4], remove=False, save_copy=False)["data"]
+    api.tab_switch(result["tab"])
+    got = [" ".join(api._session.doc[i].get_text().split())[:12]
+           for i in range(api.doc_info()["data"]["page_count"])]
+    api.tab_switch(0)
+    source_pages = api.doc_info()["data"]["page_count"]
+    return "extracted=%s source=%d" % (got, source_pages)
+
+
+check("extract opens the right pages in a new tab", extract_into_a_tab,
+      lambda r: "Page one:" in r and "Cropped page" in r and "source=7" in r)
+
+
+def extract_and_remove():
+    api = Api()
+    api.open_path(HARD)
+    api.page_extract([0, 2, 4], remove=True, save_copy=False)
+    api.tab_switch(0)
+    left = [" ".join(api._session.doc[i].get_text().split())[:12]
+            for i in range(api.doc_info()["data"]["page_count"])]
+    return "left=%d first=%r" % (len(left), left[0])
+
+
+check("removing takes them out of the original", extract_and_remove,
+      lambda r: r.startswith("left=4") and "Page two" in r)
+
+
+def extract_removal_is_undoable():
+    api = Api()
+    api.open_path(HARD)
+    api.page_extract([0, 2, 4], remove=True, save_copy=False)
+    api.tab_switch(0)
+    shrunk = api.doc_info()["data"]["page_count"]
+    api.undo()
+    return "after_remove=%d after_undo=%d" % (shrunk, api.doc_info()["data"]["page_count"])
+
+
+check("the removal can be undone", extract_removal_is_undoable,
+      lambda r: r == "after_remove=4 after_undo=7")
+
+
+def extract_everything_is_refused():
+    api = Api()
+    api.open_path(HARD)
+    return api.page_extract(list(range(7)), remove=True, save_copy=False)
+
+
+check("removing every page is refused", extract_everything_is_refused,
+      lambda r: r["ok"] is False and "empty" in r["error"])
+
+
+def extract_to_file_still_works():
+    api = Api()
+    api.open_path(HARD)
+    built, summary = pages.extract(api._session.require(), [1, 3],
+                                   os.path.join(OUT, "flow_extract.pdf"))
+    built.close()
+    written = fitz.open(summary["path"])
+    return "pages=%d written=%d" % (summary["pages"], written.page_count)
+
+
+check("extracting to a file still works", extract_to_file_still_works,
+      lambda r: r == "pages=2 written=2")
+
 print("\n" + "=" * 66)
 if findings:
     print("%d issue(s) found:" % len(findings))

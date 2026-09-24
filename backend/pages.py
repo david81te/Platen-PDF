@@ -94,14 +94,21 @@ def reset_crop(doc: fitz.Document, index: int) -> dict:
     return {"ok": True}
 
 
-def extract(doc: fitz.Document, indices: list[int], out_path: str) -> dict:
+def extract(doc: fitz.Document, indices: list[int],
+            out_path: str | None = None) -> tuple[fitz.Document, dict]:
+    """Copy pages into a new document, optionally writing it to disk.
+
+    Returns the document as well as the summary so the caller can show it
+    without reopening the file it may never have written.
+    """
     clean = _validate(doc, indices)
     out = fitz.open()
     out.insert_pdf(doc, from_page=0, to_page=doc.page_count - 1)
     out.select(clean)
-    out.save(out_path, garbage=4, deflate=True)
-    out.close()
-    return {"path": out_path, "pages": len(clean)}
+    if out_path:
+        out.save(out_path, garbage=4, deflate=True)
+    return out, {"path": out_path, "pages": len(clean),
+                 "indices": clean}
 
 
 def merge(doc: fitz.Document, paths: list[str], at: int | None = None) -> dict:

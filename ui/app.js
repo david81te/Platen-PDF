@@ -1027,12 +1027,30 @@ const ACTIONS = {
       if (r && r.count) toast('Wrote ' + r.count + ' files.', 'ok');
     }, 'Split'),
   extract: () => modal('Extract pages',
-    '<div class="field"><label>Pages (e.g. 1-3,7)</label><input name="pages" value="' + (S.page + 1) + '"></div>',
+    '<div class="field"><label>Pages</label><input name="pages" value="' +
+    (S.page + 1) + '" placeholder="e.g. 1-3,7"></div>' +
+    '<div class="field"><label><input type="checkbox" name="remove" style="width:auto"> ' +
+    'Delete these pages from this document</label></div>' +
+    '<div class="field"><label><input type="checkbox" name="save" style="width:auto" checked> ' +
+    'Also save them to a file</label></div>' +
+    '<p class="hint">The extracted pages open in a new tab either way.</p>',
     async (v) => {
       const idx = parseRanges(v.pages, S.info.page_count);
       if (!idx.length) { toast('No valid pages.', 'err'); return; }
-      const r = await busyRun('Extracting…', 'page_extract', idx);
-      if (r && r.path) toast('Extracted ' + r.pages + ' pages.', 'ok');
+      if (v.remove && idx.length >= S.info.page_count) {
+        toast('That is every page — the document would be empty.', 'err');
+        return;
+      }
+      if (v.remove && !confirm('Remove ' + idx.length +
+          ' page(s) from this document after extracting them?')) return;
+      const r = await busyRun('Extracting…', 'page_extract', idx, v.remove, v.save, true);
+      if (!r || r.cancelled) return;
+      resetPerDocumentState();
+      if (r.info) setInfo(r.info);
+      await refresh();
+      toast('Extracted ' + r.pages + ' page(s) into a new tab' +
+        (r.removed ? ', and removed them here' : '') +
+        (r.path ? ', saved as ' + baseName(r.path) : '') + '.', 'ok');
     }, 'Extract'),
   cropstart: () => { setTool('crop'); toast('Drag the area to keep.'); },
   cropreset: async () => { await run('page_reset_crop', S.page); await refresh(); },

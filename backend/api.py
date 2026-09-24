@@ -437,11 +437,36 @@ class Api:
         return self._mutate(pages.reset_crop, int(index))
 
     @endpoint
-    def page_extract(self, indices):
-        target = self._ask_save(self._default_name("_extract.pdf"))
-        if not target:
-            return {"cancelled": True}
-        return pages.extract(self._session.require(), indices, target)
+    def page_extract(self, indices, remove=False, save_copy=True, open_tab=True):
+        """Pull pages out, optionally deleting them and showing them in a tab."""
+        source = self._session.require()
+        wanted = sorted({int(i) for i in indices})
+        target = None
+        if save_copy:
+            target = self._ask_save(self._default_name("_extract.pdf"))
+            if not target:
+                return {"cancelled": True}
+
+        built, summary = pages.extract(source, wanted, target)
+
+        if remove:
+            if len(wanted) >= source.page_count:
+                built.close()
+                raise PdfError("Those are all the pages; the document would be empty.")
+            self._session.checkpoint()
+            pages.delete(source, wanted)
+            self._session.touch()
+        summary["removed"] = bool(remove)
+
+        if open_tab:
+            self._slot_for_new_document()
+            info = self._session.adopt(built, path=target,
+                                       dirty=target is None)
+            summary["tab"] = self._active
+            summary["info"] = info
+        else:
+            built.close()
+        return summary
 
     @endpoint
     def page_merge(self, at=None):

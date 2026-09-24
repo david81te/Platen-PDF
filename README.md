@@ -89,10 +89,11 @@ Also: add text boxes, delete regions, find and replace across the document.
 
 **Multiple documents** — open as many as you like in tabs across the top. Each keeps its own page, zoom, search results and undo history. A dot marks unsaved changes, and closing a dirty tab asks first.
 
-**Pages** — rotate, insert, delete, duplicate, move, crop, extract pages
-to a new file, merge other files in, merge another open tab in, and split
-by page count or ranges.
-multiple files, split by count or ranges.
+**Pages** — rotate, insert, delete, duplicate, move, crop, merge other files
+in, merge another open tab in, and split by page count or ranges. Extracting
+pages opens them in a new tab, optionally saves them to a file, and can delete
+them from the original in the same step (undoable, and refused if it would
+empty the document).
 
 **Markup** — highlight, underline, strike-through (all snap to word
 boundaries), sticky notes, free-text boxes, rectangles, ellipses, lines,
@@ -258,6 +259,8 @@ bridge.
   easy to keep testing a stale executable and conclude a fix did not work.
   `build.ps1` now checks the exit code and stops loudly; if a change seems
   absent from the app, check the timestamp on the exe first.
+- **A running or registered exe locks `dist/`**, which is another way a
+  rebuild fails while leaving a stale binary. Close the app before building.
 - **A failed PyInstaller run leaves the previous `dist/` in place.** It is
   easy to keep testing a stale executable and conclude a fix did not work,
   so `build.ps1` reports a failed build loudly and stops. Check the
