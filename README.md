@@ -14,7 +14,7 @@ python -m venv .venv
 .\build.ps1
 ```
 
-Produces `dist\PDFStudio.exe` (~108 MB, self-contained). Run it directly, or
+Produces `dist\PDFStudio.exe` (~139 MB, self-contained). Run it directly, or
 pass a file: `PDFStudio.exe contract.pdf`. To run from source: `python app.py`.
 
 ## Features
@@ -69,7 +69,9 @@ backgrounds, hyperlinks, bookmarks, document properties, 25-step undo.
 - **Microsoft Office** — only for opening Word/Excel/PowerPoint files. Without
   it, LibreOffice is used if installed; otherwise those formats are unavailable.
   Everything else works with no external dependency.
-OCR needs nothing installed — the engine and its models are inside the `.exe`.
+
+Nothing else is required. In particular **OCR needs no install** — the engine
+and its models live inside the executable.
 
 ## How in-place text editing works
 
@@ -103,9 +105,23 @@ shrunk to an illegible size.
 .venv\Scripts\python tests\test_textedit.py  # in-place editing scenarios
 .venv\Scripts\python tests\test_backend.py   # every backend feature
 .venv\Scripts\python tests\test_api.py       # the API surface the UI calls
+.venv\Scripts\python tests\test_ocr.py       # scan -> searchable, pixels unchanged
+.venv\Scripts\python tests\test_ui.py        # drives the real front end
 ```
 
 `make_fixture.py` needs Word; the rest run against the PDF it produces.
+`test_ui.py` opens the real window and drives `app.js` through `evaluate_js`.
+It never synthesises mouse or keyboard input, so it cannot disturb whatever
+else is open on the desktop — do not replace it with input automation.
+
+To check a packaged build without a GUI:
+
+```powershell
+.\dist\PDFStudio.exe --selftest
+```
+
+This confirms the bundled UI files and OCR models resolved inside the frozen
+executable — the part most likely to break when PyInstaller relocates data.
 
 ## Layout
 
