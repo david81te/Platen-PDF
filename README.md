@@ -187,6 +187,11 @@ means removing the original glyphs and re-typesetting replacements:
    come back as U+00A0 and the "fi" ligature as a Greek beta. Text still *looks*
    right, but search, copy/paste and Word export would all see wrong characters.
 
+When replacement text no longer fits its line, the whole paragraph is
+re-wrapped rather than the line alone: wrapping just that line would lay it
+over the lines beneath, and drawing it anyway would push the tail off the page
+where it is invisible.
+
 **Limits.** Rotated and vertical text is refused rather than mangled. Scanned
 pages have no text to edit until OCR is run. Paragraph edits apply the
 paragraph's dominant style, so a run with unusual styling mid-paragraph is

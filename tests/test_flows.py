@@ -393,6 +393,58 @@ for identifier in sig_ids:
     except Exception:
         pass
 
+print("")
+print("== unsaved work is tracked ==")
+
+
+def unsaved_tracking():
+    api = Api()
+    api.open_path(HARD)
+    clean = api.unsaved()
+    api.annot_note(0, [200, 200], "a change")
+    dirty = api.unsaved()
+    api._session.save(os.path.join(OUT, "flow_saved.pdf"))
+    after = api.unsaved()
+    return "clean=%d dirty=%d after_save=%d" % (len(clean), len(dirty), len(after))
+
+
+check("a document is only dirty once edited", unsaved_tracking,
+      lambda r: r == "clean=0 dirty=1 after_save=0")
+
+
+def unsaved_across_tabs():
+    api = Api()
+    api.open_path(HARD)
+    api.open_path(os.path.join(OUT, "fixture.pdf"))
+    api.annot_note(0, [200, 200], "second tab edit")
+    api.tab_switch(0)
+    api.annot_note(0, [220, 220], "first tab edit")
+    return sorted(t["name"] for t in api.unsaved())
+
+
+check("every changed tab is reported", unsaved_across_tabs,
+      lambda r: r == ["fixture.pdf", "hard.pdf"])
+
+
+def save_all_writes_everything():
+    import shutil
+    first = os.path.join(OUT, "sa_one.pdf")
+    second = os.path.join(OUT, "sa_two.pdf")
+    shutil.copyfile(HARD, first)
+    shutil.copyfile(os.path.join(OUT, "fixture.pdf"), second)
+    api = Api()
+    api.open_path(first)
+    api.open_path(second)
+    api.annot_note(0, [200, 200], "tab two")
+    api.tab_switch(0)
+    api.annot_note(0, [200, 200], "tab one")
+    result = api.save_all()
+    return "saved=%d left_dirty=%d" % (len(result["saved"]), len(api.unsaved()))
+
+
+check("save all clears every tab", save_all_writes_everything,
+      lambda r: r == "saved=2 left_dirty=0")
+
 print("\n" + "=" * 66)
 if findings:
     print("%d issue(s) found:" % len(findings))

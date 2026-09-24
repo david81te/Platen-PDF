@@ -171,6 +171,45 @@ class Api:
 
     # ---- tabs -----------------------------------------------------------
 
+    def unsaved(self) -> list[dict]:
+        """Tabs with changes that would be lost. Plain method, not an endpoint."""
+        out = []
+        for index, session in enumerate(self._docs):
+            info = session.info()
+            if info.get("open") and info.get("dirty"):
+                out.append({"index": index, "name": info.get("name"),
+                            "path": info.get("path")})
+        return out
+
+    def save_all(self) -> dict:
+        """Save every changed tab, asking for a location where there is none."""
+        saved, skipped = [], []
+        keep = self._active
+        try:
+            for item in self.unsaved():
+                self._active = item["index"]
+                if self._session.path:
+                    self._session.save()
+                    saved.append(item["name"])
+                    continue
+                target = self._ask_save(self._default_name(".pdf"))
+                if not target:
+                    skipped.append(item["name"])
+                    continue
+                self._session.save(target)
+                saved.append(os.path.basename(target))
+        finally:
+            self._active = min(keep, len(self._docs) - 1)
+        return {"saved": saved, "skipped": skipped}
+
+    @endpoint
+    def unsaved_list(self):
+        return {"tabs": self.unsaved()}
+
+    @endpoint
+    def save_all_tabs(self):
+        return self.save_all()
+
     @endpoint
     def tab_list(self):
         return self._tab_state()

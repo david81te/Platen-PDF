@@ -114,6 +114,38 @@ def main() -> None:
     if startup:
         api._startup_path = os.path.abspath(startup[0])
 
+    MB_YESNOCANCEL = 0x03
+    MB_ICONWARNING = 0x30
+    ID_YES, ID_NO, ID_CANCEL = 6, 7, 2
+
+    def confirm_close() -> bool:
+        """Ask before discarding unsaved work. False keeps the window open."""
+        try:
+            pending = api.unsaved()
+        except Exception:
+            return True
+        if not pending:
+            return True
+        names = chr(10).join("  - " + (item["name"] or "Untitled")
+                             for item in pending)
+        prompt = ("These documents have unsaved changes:" + chr(10) * 2 +
+                  names + chr(10) * 2 + "Save before closing?")
+        try:
+            answer = ctypes.windll.user32.MessageBoxW(
+                None, prompt, APP_NAME, MB_YESNOCANCEL | MB_ICONWARNING)
+        except Exception:
+            return True
+        if answer == ID_CANCEL:
+            return False
+        if answer == ID_YES:
+            result = api.save_all()
+            if result["skipped"]:
+                # They cancelled a Save As, so do not throw the work away.
+                return False
+        return True
+
+    window.events.closing += confirm_close
+
     def handle_incoming(path: str) -> None:
         """A later launch asked us to open a file: show it in a new tab."""
         try:

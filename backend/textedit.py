@@ -13,6 +13,7 @@ Tuned for PDFs exported from Word, which produce clean, well-separated text runs
 from __future__ import annotations
 
 import html as html_mod
+import re
 
 import pymupdf as fitz
 
@@ -184,14 +185,15 @@ def _horizontal(line: dict) -> bool:
     return abs(direction[0]) > 0.999
 
 
-def edit_span(doc: fitz.Document, span_id: str, new_text: str, binder: FontBinder | None = None) -> dict:
+def edit_span(doc: fitz.Document, span_id: str, new_text: str,
+              binder: FontBinder | None = None) -> dict:
     """Replace one text run, reflowing the rest of its line."""
     parts = parse_id(span_id)
     if len(parts) != 4:
         raise ValueError("That text reference is not valid.")
     page_no, b_index, l_index, s_index = parts
     page = _page(doc, page_no)
-    _, line = _locate(page, b_index, l_index)
+    block, line = _locate(page, b_index, l_index)
     spans = [s for s in line["spans"] if s.get("text")]
     if s_index >= len(line["spans"]):
         raise ValueError("Text run no longer exists on this page.")
@@ -213,6 +215,29 @@ def edit_span(doc: fitz.Document, span_id: str, new_text: str, binder: FontBinde
     baseline_y = target.get("origin", (0, line["bbox"][3]))[1]
     start_x = line["bbox"][0]
 
+    # How much room this line actually has.
+    right_edge = max(block["bbox"][2], line["bbox"][2])
+    if right_edge - start_x < 40:
+        right_edge = page.rect.x1 - 36
+    available = max(40.0, right_edge - start_x)
+    spacing = _line_spacing(block, _dominant_style(block)["size"])
+
+    # If the new wording no longer fits the line, re-wrap the whole paragraph.
+    # Wrapping just this line would lay it over the lines beneath it, and
+    # drawing it anyway would push the tail off the page, where it is invisible
+    # and lost from the extracted text too.
+    probe = FontBinder(doc)
+    needed = 0.0
+    for run in rebuilt:
+        if not run["text"]:
+            continue
+        _, font = probe.bind(page, run["font"], run["text"])
+        needed += font.text_length(run["text"], fontsize=run["size"])
+    if needed > available * 1.02 and len(block.get("lines", [])) >= 1:
+        return _reflow_block(doc, page_no, b_index, l_index, s_index, new_text)
+
+    ceiling = _max_bottom(page, fitz.Rect(line["bbox"]), b_index)
+
     rect = fitz.Rect(line["bbox"])
     rect.y0 -= 1.0
     rect.y1 += 1.0
@@ -221,12 +246,42 @@ def edit_span(doc: fitz.Document, span_id: str, new_text: str, binder: FontBinde
 
     page = doc[page_no]
     return _draw_runs(page, rebuilt, start_x, baseline_y, binder,
-                      available=max(0.0, page.rect.x1 - start_x - 4))
+                      available=available, spacing=spacing, max_bottom=ceiling)
+
+
+def _reflow_block(doc: fitz.Document, page_no: int, b_index: int,
+                  l_index: int, s_index: int, new_text: str) -> dict:
+    """Re-wrap a whole paragraph with one of its runs replaced."""
+    page = doc[page_no]
+    block, _ = _locate(page, b_index)
+    pieces = []
+    for li, line in enumerate(block.get("lines", [])):
+        for si, span in enumerate(line.get("spans", [])):
+            text = new_text if (li == l_index and si == s_index) else span.get("text", "")
+            pieces.append(text)
+        pieces.append(" ")          # the wrapped break becomes a space
+    paragraph = " ".join("".join(pieces).split())
+    result = edit_block(doc, "%d:%d" % (page_no, b_index), paragraph)
+    result["reflowed"] = True
+    return result
+
+
+def _tokens(text: str):
+    """Split into words that keep their trailing space, so wrapping is clean."""
+    found = re.findall(r"\S+\s*|\s+", text)
+    return found or ([text] if text else [])
 
 
 def _draw_runs(page: fitz.Page, runs: list[dict], start_x: float, baseline_y: float,
-               binder: FontBinder, available: float) -> dict:
-    """Draw styled runs left-to-right from a baseline point; shrink if too wide."""
+               binder: FontBinder, available: float, spacing: float = 1.15,
+               max_bottom: float | None = None) -> dict:
+    """Draw styled runs from a baseline, wrapping rather than running off the page.
+
+    Text longer than the space it replaced used to be squeezed to 55% and drawn
+    anyway, so the tail slid past the right edge and simply vanished -- missing
+    from the page and from the extracted text. Now it shrinks only slightly,
+    then wraps onto further lines, and reports if it still will not fit.
+    """
     fonts_before = fontmod.page_font_xrefs(page.parent, page.number)
     prepared = []
     total = 0.0
@@ -237,30 +292,55 @@ def _draw_runs(page: fitz.Page, runs: list[dict], start_x: float, baseline_y: fl
         width = font.text_length(run["text"], fontsize=run["size"])
         prepared.append({**run, "alias": alias, "font": font, "width": width})
         total += width
+    if not prepared:
+        return {"ok": True, "scale": 1.0, "shrunk": False, "wrapped": False,
+                "overflow": False, "width": 0.0, "lines": 0}
 
+    # A small squeeze keeps a near miss on one line; beyond that, wrap.
     scale = 1.0
-    if available > 0 and total > available:
-        scale = max(0.55, available / total)
+    if total > available:
+        scale = max(0.9, available / total)
+
+    body = max(run["size"] for run in prepared) * scale
+    line_height = body * spacing
+    ceiling = max_bottom if max_bottom is not None else page.rect.y1 - 4
 
     pen = start_x
+    baseline = baseline_y
+    lines = 1
+    overflow = False
+
     for run in prepared:
         size = run["size"] * scale
-        page.insert_text(
-            fitz.Point(pen, baseline_y),
-            run["text"],
-            fontname=run["alias"],
-            fontsize=size,
-            color=_color_tuple(run["color"]),
-            render_mode=0,
-        )
-        pen += run["font"].text_length(run["text"], fontsize=size)
+        color = _color_tuple(run["color"])
+        for token in _tokens(run["text"]):
+            width = run["font"].text_length(token, fontsize=size)
+            if pen + width > start_x + available and pen > start_x:
+                if baseline + line_height > ceiling:
+                    overflow = True          # nowhere left to put it
+                    break
+                baseline += line_height
+                pen = start_x
+                lines += 1
+                token = token.lstrip()
+                width = run["font"].text_length(token, fontsize=size)
+            if not token:
+                continue
+            page.insert_text(fitz.Point(pen, baseline), token, fontname=run["alias"],
+                             fontsize=size, color=color, render_mode=0)
+            pen += width
+        if overflow:
+            break
 
     fontmod.repair_inserted_fonts(page.parent, page.number, fonts_before)
 
     return {
         "ok": True,
         "scale": round(scale, 3),
-        "shrunk": scale < 1.0,
+        "shrunk": scale < 0.999,
+        "wrapped": lines > 1,
+        "overflow": overflow,
+        "lines": lines,
         "width": round(pen - start_x, 2),
     }
 
