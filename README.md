@@ -30,6 +30,20 @@ makes it slow to start. Use the folder build unless you need portability.
 Run either directly, or pass a file: `PDFStudio.exe contract.pdf`. To run from
 source: `python app.py`.
 
+## Icon
+
+`assets/app_icon_source.png` is the artwork. Rebuild the multi-size icon after
+changing it:
+
+```powershell
+.venv\Scripts\python assets\make_app_icon.py
+```
+
+That writes `assets/pdfstudio.ico` with 16-256px entries, which both spec files
+embed in the executable and which the file association points at. Detailed
+artwork softens below about 32px, which is the size Explorer's list view and
+the taskbar use, so check `assets/icon_sizes.png` after any change.
+
 ## Sharing it with other people
 
 Both builds are self-contained: no Python, no installer, nothing to set up.

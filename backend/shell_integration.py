@@ -92,6 +92,14 @@ def status() -> dict:
     }
 
 
+def icon_source(exe: str) -> str:
+    """Where Windows should read the document icon from."""
+    bundled = os.path.join(os.path.dirname(exe), "_internal", "assets", "pdfstudio.ico")
+    if os.path.isfile(bundled):
+        return bundled
+    return "%s,0" % exe          # single-file build: use the exe's own icon
+
+
 def register() -> dict:
     """Advertise the app as a .pdf handler for the current user."""
     exe = executable_path()
@@ -105,7 +113,7 @@ def register() -> dict:
 
     # The document type itself.
     _set(hkcu, r"Software\Classes\%s" % PROG_ID, None, "PDF Document")
-    _set(hkcu, r"Software\Classes\%s\DefaultIcon" % PROG_ID, None, "%s,0" % exe)
+    _set(hkcu, r"Software\Classes\%s\DefaultIcon" % PROG_ID, None, icon_source(exe))
     _set(hkcu, r"Software\Classes\%s\shell\open\command" % PROG_ID, None, command)
 
     # Offer it in the Open with list, without disturbing the current default.

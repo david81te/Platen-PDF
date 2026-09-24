@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all, collect_data_files
 
-datas = [("ui", "ui")]
+datas = [("ui", "ui"), ("assets/pdfstudio.ico", "assets")]
 binaries = []
 hiddenimports = ["win32com.client", "pythoncom", "pywintypes"]
 
@@ -48,4 +48,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon="assets/pdfstudio.ico",
 )
