@@ -96,7 +96,7 @@ class Api:
 
     @endpoint
     def ping(self):
-        return {"ready": True, "ocr": convert.tesseract_status()}
+        return {"ready": True, "ocr": convert.ocr_status()}
 
     @endpoint
     def pending_open(self):
@@ -167,8 +167,8 @@ class Api:
         return self._session.redo()
 
     @endpoint
-    def search(self, query):
-        return self._session.search(query)
+    def search(self, query, match_case=False):
+        return self._session.search(query, bool(match_case))
 
     @endpoint
     def outline(self):
@@ -552,11 +552,11 @@ class Api:
 
     @endpoint
     def ocr_status(self):
-        return convert.tesseract_status()
+        return convert.ocr_status()
 
     @endpoint
-    def ocr_run(self, language="eng", dpi=300):
-        result = self._mutate(convert.ocr, language, int(dpi))
+    def ocr_run(self, language="eng", dpi=220, force=False):
+        result = self._mutate(convert.ocr, language, int(dpi), None, bool(force))
         self._session.reload()
         return result
 

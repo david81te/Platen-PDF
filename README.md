@@ -46,10 +46,19 @@ and re-import values as CSV, flatten filled fields into the page.
 per-permission control. True redaction that deletes the underlying text and
 image data rather than drawing a black box over it.
 
+**Search** — full-document find with a results list, surrounding-line context,
+match highlighting, match-case, next/previous navigation, and every hit drawn
+on the page. `Ctrl+F`.
+
 **Convert** — to Word (layout preserving), Excel (detected tables), PowerPoint
 (editable text boxes or exact page pictures), images, plain text. Word, Excel,
-PowerPoint and image files can be opened directly and become PDFs. OCR for
-scanned pages. Compression with three levels.
+PowerPoint and image files can be opened directly and become PDFs. Compression
+with three levels.
+
+**OCR** — the engine (RapidOCR on onnxruntime) ships **inside the app**; there
+is nothing for anyone to install. A recognised page keeps its original pixels
+exactly and gains an invisible text layer, so scans become searchable and
+selectable without changing how they look.
 
 **Also** — watermarks (text or image), page numbers, headers and footers, page
 backgrounds, hyperlinks, bookmarks, document properties, 25-step undo.
@@ -60,9 +69,7 @@ backgrounds, hyperlinks, bookmarks, document properties, 25-step undo.
 - **Microsoft Office** — only for opening Word/Excel/PowerPoint files. Without
   it, LibreOffice is used if installed; otherwise those formats are unavailable.
   Everything else works with no external dependency.
-- **Tesseract OCR** — only for the OCR command. Install from
-  [UB-Mannheim/tesseract](https://github.com/UB-Mannheim/tesseract/wiki); the
-  app detects it on start and explains if it is missing.
+OCR needs nothing installed — the engine and its models are inside the `.exe`.
 
 ## How in-place text editing works
 

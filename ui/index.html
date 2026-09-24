@@ -119,11 +119,24 @@
   <aside id="sidebar">
     <div class="tabs">
       <button class="tab active" data-pane="thumbs">Pages</button>
+      <button class="tab" data-pane="find">Find</button>
       <button class="tab" data-pane="outline">Marks</button>
       <button class="tab" data-pane="comments">Notes</button>
-      <button class="tab" data-pane="sigs">Signatures</button>
+      <button class="tab" data-pane="sigs">Sign</button>
     </div>
     <div class="pane active" id="pane-thumbs"></div>
+    <div class="pane" id="pane-find">
+      <div class="findbar">
+        <input id="findq" type="text" placeholder="Search the document…" autocomplete="off">
+        <label class="findopt"><input type="checkbox" id="findcase"> Match case</label>
+        <div class="findnav">
+          <button id="findprev" title="Previous">‹</button>
+          <span id="findcount">Type to search</span>
+          <button id="findnext" title="Next">›</button>
+        </div>
+      </div>
+      <div id="findlist"></div>
+    </div>
     <div class="pane" id="pane-outline"></div>
     <div class="pane" id="pane-comments"></div>
     <div class="pane" id="pane-sigs">

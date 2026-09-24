@@ -6,8 +6,11 @@ binaries = []
 hiddenimports = ["win32com.client", "pythoncom", "pywintypes"]
 
 # pywebview needs its JS shim; the document libraries ship templates and data.
+# rapidocr_onnxruntime carries the OCR models as package data, so collecting it
+# is what makes OCR work with nothing for the user to install.
 for package in ("webview", "pymupdf", "pdf2docx", "docx", "pptx", "openpyxl",
-                "fitz", "PIL", "pikepdf", "fontTools"):
+                "fitz", "PIL", "pikepdf", "fontTools",
+                "rapidocr_onnxruntime", "onnxruntime", "shapely", "pyclipper"):
     try:
         extra_datas, extra_binaries, extra_hidden = collect_all(package)
     except Exception:

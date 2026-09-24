@@ -316,55 +316,99 @@ def from_files(paths: list[str]) -> fitz.Document:
 
 
 # ---- OCR -----------------------------------------------------------------
+#
+# The OCR engine ships inside the app: RapidOCR runs ONNX models through
+# onnxruntime, so there is nothing for anyone to install. We keep the original
+# page untouched and lay invisible text over it at the recognised positions,
+# which makes a scan searchable and selectable without altering how it looks.
 
-def tesseract_status() -> dict:
-    binary = shutil.which("tesseract")
-    if not binary:
-        for guess in (r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-                      r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"):
-            if os.path.isfile(guess):
-                binary = guess
-                break
-    data = os.environ.get("TESSDATA_PREFIX")
-    if not data and binary:
-        guess = os.path.join(os.path.dirname(binary), "tessdata")
-        data = guess if os.path.isdir(guess) else None
-    return {"available": bool(binary and data), "binary": binary, "tessdata": data}
+_ENGINE = None
 
 
-def ocr(doc: fitz.Document, language: str = "eng", dpi: int = 300,
-        pages: list[int] | None = None) -> dict:
-    """Rebuild pages with an invisible text layer so scans become searchable."""
-    status = tesseract_status()
-    if not status["available"]:
-        raise PdfError(
-            "OCR needs Tesseract. Install it from "
-            "github.com/UB-Mannheim/tesseract/wiki, then reopen this app.")
-    if status["tessdata"]:
-        os.environ["TESSDATA_PREFIX"] = status["tessdata"]
+def _engine():
+    global _ENGINE
+    if _ENGINE is None:
+        try:
+            from rapidocr_onnxruntime import RapidOCR
+        except ImportError as exc:
+            raise PdfError("The OCR engine is missing from this build.") from exc
+        _ENGINE = RapidOCR()
+    return _ENGINE
 
+
+def ocr_status() -> dict:
+    try:
+        from rapidocr_onnxruntime import RapidOCR  # noqa: F401
+        return {"available": True, "engine": "RapidOCR (built in)", "needs_install": False}
+    except ImportError:
+        return {"available": False, "engine": None, "needs_install": True}
+
+
+# Backwards-compatible alias; earlier builds shelled out to Tesseract.
+tesseract_status = ocr_status
+
+
+def _quad_bounds(box) -> tuple[float, float, float, float]:
+    xs = [float(point[0]) for point in box]
+    ys = [float(point[1]) for point in box]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def ocr(doc: fitz.Document, language: str = "eng", dpi: int = 220,
+        pages: list[int] | None = None, force: bool = False) -> dict:
+    """Add a searchable invisible text layer to scanned pages."""
+    import numpy as np
+
+    engine = _engine()
     targets = list(pages) if pages else list(range(doc.page_count))
-    zoom = max(72, min(int(dpi), 600)) / 72.0
+    zoom = max(72, min(int(dpi), 400)) / 72.0
+    helv = fitz.Font(fontname="helv")
+
     done = 0
+    skipped = 0
+    words = 0
     for index in targets:
         page = doc[index]
-        if page.get_text().strip():
-            continue  # already has real text
+        if not force and page.get_text().strip():
+            skipped += 1
+            continue
         pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+        array = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+            pix.height, pix.width, pix.n)
         try:
-            layered = pix.pdfocr_tobytes(language=language)
+            found, _ = engine(array)
         except Exception as exc:
-            raise PdfError("OCR failed: " + str(exc)) from exc
-        replacement = fitz.open("pdf", layered)
-        rect = page.rect
-        doc.delete_page(index)
-        doc.insert_pdf(replacement, start_at=index)
-        new_page = doc[index]
-        if abs(new_page.rect.width - rect.width) > 1:
-            new_page.set_mediabox(fitz.Rect(0, 0, rect.width, rect.height))
-        replacement.close()
+            raise PdfError("OCR failed on page %d: %s" % (index + 1, exc)) from exc
+        if not found:
+            continue
+
+        page.insert_font(fontname="helv")
+        for box, text, score in found:
+            text = (text or "").strip()
+            if not text or float(score) < 0.3:
+                continue
+            x0, y0, x1, y1 = _quad_bounds(box)
+            # Recognised coordinates are in rendered pixels; the page is points.
+            x0, y0, x1, y1 = x0 / zoom, y0 / zoom, x1 / zoom, y1 / zoom
+            width = max(1.0, x1 - x0)
+            height = max(1.0, y1 - y0)
+            unit = helv.text_length(text, fontsize=1.0) or 1.0
+            size = max(1.0, min(width / unit, height * 1.2))
+            page.insert_text(
+                fitz.Point(x0, y1 - height * 0.18),
+                text,
+                fontname="helv",
+                fontsize=size,
+                render_mode=3,  # invisible: selectable and searchable only
+            )
+            words += 1
         done += 1
-    return {"pages": done, "skipped": len(targets) - done}
+
+    if not done and skipped:
+        raise PdfError(
+            "Every page already contains real text. Use Force re-recognise "
+            "if you want to OCR them anyway.")
+    return {"pages": done, "skipped": skipped, "blocks": words}
 
 
 # ---- optimisation --------------------------------------------------------

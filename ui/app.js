@@ -16,6 +16,9 @@ const S = {
   fontSize: 11,
   redactions: [],
   editing: null,
+  hits: [],
+  hitIndex: -1,
+  findQuery: '',
 };
 
 const $ = (id) => document.getElementById(id);
@@ -130,6 +133,7 @@ function escapeHtml(s) {
 }
 
 async function refresh(full = true) {
+  if (S.hits.length) { S.hits = []; S.hitIndex = -1; renderHits(false); }
   setInfo(await run('doc_info'));
   if (!S.info) return;
   await drawPage();
@@ -214,6 +218,17 @@ async function buildOverlay() {
   } else if (S.tool !== 'select') {
     ov.classList.add('crosshair');
   }
+
+  S.hits.forEach((h, i) => {
+    if (h.page !== S.page) return;
+    const mark = el('div', 'searchhit' + (i === S.hitIndex ? ' on' : ''));
+    Object.assign(mark.style, {
+      left: toPx(h.rect[0]) - 1 + 'px', top: toPx(h.rect[1]) - 1 + 'px',
+      width: toPx(h.rect[2] - h.rect[0]) + 2 + 'px',
+      height: toPx(h.rect[3] - h.rect[1]) + 2 + 'px',
+    });
+    ov.appendChild(mark);
+  });
 
   S.redactions.filter((r) => r.page === S.page).forEach((r) => {
     const mark = el('div', 'redactmark');
@@ -628,7 +643,7 @@ const ACTIONS = {
   close: async () => { await run('close_doc'); setInfo({ open: false }); },
   undo: async () => { setInfo(await run('undo')); await refresh(); },
   redo: async () => { setInfo(await run('redo')); await refresh(); },
-  find: () => promptFind(),
+  find: () => openFind(),
   replace: () => promptReplace(),
   props: () => promptProps(),
 
@@ -789,13 +804,88 @@ async function applyRedactions() {
   if (r) { S.redactions = []; toast('Redacted ' + r.pages + ' pages.', 'ok'); await refresh(); }
 }
 
-function promptFind() {
-  modal('Find', '<div class="field"><label>Text</label><input name="q"></div>', async (v) => {
-    const hits = await run('search', v.q);
-    if (!hits || !hits.length) { toast('No matches.', 'err'); return; }
-    toast(hits.length + ' matches. Showing the first.');
-    await gotoPage(hits[0].page);
-  }, 'Find');
+/* ---------- find ---------- */
+
+function showPane(name) {
+  document.querySelectorAll('.tab').forEach((x) =>
+    x.classList.toggle('active', x.dataset.pane === name));
+  document.querySelectorAll('.pane').forEach((x) => x.classList.remove('active'));
+  $('pane-' + name).classList.add('active');
+}
+
+function openFind() {
+  showPane('find');
+  const box = $('findq');
+  box.focus();
+  box.select();
+}
+
+async function runSearch() {
+  const query = $('findq').value;
+  const matchCase = $('findcase').checked;
+  S.findQuery = query;
+  if (!query.trim()) {
+    S.hits = []; S.hitIndex = -1;
+    $('findlist').innerHTML = '';
+    $('findcount').textContent = 'Type to search';
+    buildOverlay();
+    return;
+  }
+  const res = await run('search', query, matchCase);
+  if (!res) return;
+  S.hits = res.hits || [];
+  S.hitIndex = S.hits.length ? 0 : -1;
+  renderHits(res.truncated);
+  if (S.hits.length) await goToHit(0);
+  else buildOverlay();
+}
+
+function highlightSnippet(snippet, query) {
+  // Index based rather than regex: the query is user text and may contain
+  // characters that would otherwise need escaping.
+  if (!query) return escapeHtml(snippet);
+  const hay = snippet.toLowerCase();
+  const needle = query.toLowerCase();
+  let out = '';
+  let at = 0;
+  for (;;) {
+    const i = hay.indexOf(needle, at);
+    if (i < 0) break;
+    out += escapeHtml(snippet.slice(at, i)) +
+      '<mark>' + escapeHtml(snippet.slice(i, i + needle.length)) + '</mark>';
+    at = i + needle.length;
+  }
+  return out + escapeHtml(snippet.slice(at));
+}
+
+
+function renderHits(truncated) {
+  const list = $('findlist');
+  list.innerHTML = '';
+  $('findcount').textContent = S.hits.length
+    ? (S.hitIndex + 1) + ' of ' + S.hits.length + (truncated ? '+' : '')
+    : 'No matches';
+  if (!S.hits.length) return;
+  S.hits.forEach((h, i) => {
+    const row = el('div', 'findrow' + (i === S.hitIndex ? ' on' : ''),
+      '<div class="p">Page ' + (h.page + 1) + '</div>' +
+      '<div class="s">' + highlightSnippet(h.snippet || '', S.findQuery) + '</div>');
+    row.onclick = () => goToHit(i);
+    list.appendChild(row);
+  });
+}
+
+async function goToHit(index) {
+  if (!S.hits.length) return;
+  S.hitIndex = (index + S.hits.length) % S.hits.length;
+  const hit = S.hits[S.hitIndex];
+  renderHits(false);
+  const row = $('findlist').children[S.hitIndex];
+  if (row) row.scrollIntoView({ block: 'nearest' });
+  if (hit.page !== S.page) await gotoPage(hit.page);
+  else await buildOverlay();
+  const node = document.querySelector('.searchhit.on');
+  if (node) node.scrollIntoView({ block: 'center', inline: 'center' });
 }
 
 function promptReplace() {
@@ -877,6 +967,7 @@ document.querySelectorAll('.tab').forEach((b) => {
     $('pane-' + b.dataset.pane).classList.add('active');
     if (b.dataset.pane === 'sigs') loadSigs();
     if (b.dataset.pane === 'comments') loadComments();
+    if (b.dataset.pane === 'find') $('findq').focus();
   };
 });
 
@@ -892,6 +983,21 @@ $('sig-add').onclick = () => modal('Add a signature',
     if (r && !r.cancelled) { toast('Signature saved.', 'ok'); loadSigs(); }
   }, 'Choose image…');
 
+let findTimer = null;
+$('findq').oninput = () => {
+  clearTimeout(findTimer);
+  findTimer = setTimeout(runSearch, 280);
+};
+$('findq').onkeydown = (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); clearTimeout(findTimer);
+    if (S.hits.length && $('findq').value === S.findQuery) goToHit(S.hitIndex + (e.shiftKey ? -1 : 1));
+    else runSearch(); }
+  if (e.key === 'Escape') { $('findq').value = ''; runSearch(); }
+};
+$('findcase').onchange = runSearch;
+$('findnext').onclick = () => goToHit(S.hitIndex + 1);
+$('findprev').onclick = () => goToHit(S.hitIndex - 1);
+
 $('prev').onclick = () => gotoPage(S.page - 1);
 $('next').onclick = () => gotoPage(S.page + 1);
 $('pagenum').onchange = () => gotoPage((parseInt($('pagenum').value, 10) || 1) - 1);
@@ -900,13 +1006,16 @@ $('zoomout').onclick = () => { S.fit = false; S.zoom = Math.max(0.15, S.zoom / 1
 $('zoomfit').onclick = () => { S.fit = !S.fit; drawPage(); };
 
 document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+    e.preventDefault(); openFind(); return;
+  }
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
   const ctrl = e.ctrlKey || e.metaKey;
   if (ctrl && e.key.toLowerCase() === 'o') { e.preventDefault(); ACTIONS.open(); }
   else if (ctrl && e.key.toLowerCase() === 's') { e.preventDefault(); ACTIONS.save(); }
   else if (ctrl && e.key.toLowerCase() === 'z') { e.preventDefault(); ACTIONS.undo(); }
   else if (ctrl && e.key.toLowerCase() === 'y') { e.preventDefault(); ACTIONS.redo(); }
-  else if (ctrl && e.key.toLowerCase() === 'f') { e.preventDefault(); promptFind(); }
+  else if (ctrl && e.key.toLowerCase() === 'f') { e.preventDefault(); openFind(); }
   else if (e.key === 'PageDown' || e.key === 'ArrowRight') gotoPage(S.page + 1);
   else if (e.key === 'PageUp' || e.key === 'ArrowLeft') gotoPage(S.page - 1);
   else if (e.key === 'Escape') { cancelEdit(); setTool('select'); }

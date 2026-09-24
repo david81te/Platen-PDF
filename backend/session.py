@@ -227,20 +227,33 @@ class Session:
 
     # ---- search & outline ----------------------------------------------
 
-    def search(self, query: str, limit: int = 500) -> list[dict]:
+    def search(self, query: str, match_case: bool = False,
+               limit: int = 800) -> dict:
+        """Find every occurrence, with the line it sits on as context."""
         doc = self.require()
+        query = query or ""
         if not query.strip():
-            return []
+            return {"query": query, "hits": [], "truncated": False}
+
         hits = []
         for index in range(doc.page_count):
-            for rect in doc[index].search_for(query):
+            page = doc[index]
+            for rect in page.search_for(query):
+                if match_case:
+                    # search_for ignores case, so confirm the real casing.
+                    if query not in (page.get_textbox(rect) or ""):
+                        continue
+                line = fitz.Rect(page.rect.x0, rect.y0 - 1,
+                                 page.rect.x1, rect.y1 + 1)
+                snippet = " ".join((page.get_textbox(line) or "").split())
                 hits.append({
                     "page": index,
                     "rect": [rect.x0, rect.y0, rect.x1, rect.y1],
+                    "snippet": snippet[:160],
                 })
                 if len(hits) >= limit:
-                    return hits
-        return hits
+                    return {"query": query, "hits": hits, "truncated": True}
+        return {"query": query, "hits": hits, "truncated": False}
 
     def outline(self) -> list[dict]:
         doc = self.require()
