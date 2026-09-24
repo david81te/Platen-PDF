@@ -273,3 +273,34 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
 .dtab .cl:hover { opacity: 1; background: #ffffff1f; }
 #tabadd { border: 0; border-radius: 0; background: transparent; color: var(--muted); padding: 0 12px; }
 #tabadd:hover { background: var(--panel-2); color: var(--ink); }
+
+/* ---- annotations: clicking one on the page opens it ---- */
+.annothit { position: absolute; cursor: pointer; border-radius: 3px; }
+.annothit:hover { background: #4c8dff26; outline: 1px solid #4c8dff99; }
+.annothit.on { background: #4c8dff33; outline: 2px solid var(--accent); }
+
+.bubble {
+  position: absolute; z-index: 45; min-width: 180px; max-width: 280px;
+  background: #2b3242; border: 1px solid var(--line); border-radius: 9px;
+  padding: 9px 11px; box-shadow: 0 12px 30px #000b; user-select: text;
+}
+.bubble .who { font-size: 11px; color: var(--muted); display: flex; gap: 6px; }
+.bubble .who b { color: var(--ink); font-weight: 600; }
+.bubble .txt { font-size: 12.5px; margin: 5px 0 9px; white-space: pre-wrap; line-height: 1.45; }
+.bubble .acts { display: flex; gap: 6px; }
+.bubble .acts button { padding: 3px 9px; font-size: 11.5px; }
+.bubble .x { position: absolute; top: 5px; right: 7px; color: var(--muted); cursor: pointer; }
+.bubble .x:hover { color: var(--ink); }
+
+.cmt {
+  border: 1px solid transparent; border-left-width: 2px;
+  border-radius: 7px; padding: 7px 8px; margin-bottom: 6px; cursor: pointer;
+}
+.cmt:hover { background: var(--panel-2); }
+.cmt.on { border-color: var(--accent); background: #4c8dff14; }
+.cmt .hdr { display: flex; gap: 6px; align-items: baseline; font-size: 11px; color: var(--muted); }
+.cmt .kind { text-transform: uppercase; letter-spacing: .4px; }
+.cmt .body { font-size: 12.5px; white-space: pre-wrap; line-height: 1.45; margin: 3px 0 6px; }
+.cmt .body.empty { color: var(--muted); font-style: italic; }
+.cmt .acts { display: flex; gap: 5px; }
+.cmt .acts button { padding: 2px 8px; font-size: 11px; }

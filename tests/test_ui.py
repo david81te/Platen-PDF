@@ -88,6 +88,7 @@ def drive(window):
 
         print("")
         print("")
+
         print("-- wheel and editor --")
         js("S.fit=false; S.zoom=1.25; drawPage()")
         time.sleep(1.0)

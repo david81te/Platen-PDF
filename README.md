@@ -97,6 +97,11 @@ multiple files, split by count or ranges.
 **Markup** — highlight, underline, strike-through (all snap to word
 boundaries), sticky notes, free-text boxes, rectangles, ellipses, lines,
 arrows, freehand ink, and the standard stamps (Approved, Draft, Confidential…).
+Click anything you have marked up to read it in a bubble on the page, with
+the full text also listed in the Notes panel; both offer Edit and Delete.
+Annotations can be flattened so they become permanent.
+boundaries), sticky notes, free-text boxes, rectangles, ellipses, lines,
+arrows, freehand ink, and the standard stamps (Approved, Draft, Confidential…).
 Annotations can be flattened so they become permanent.
 
 **Signatures** — save a signature image per person (the white paper background
@@ -190,6 +195,7 @@ shrunk to an illegible size.
 .venv\Scripts\python tests\test_api.py       # the API surface the UI calls
 .venv\Scripts\python tests\test_ocr.py       # scan -> searchable, pixels unchanged
 .venv\Scripts\python tests\test_ui.py        # drives the real front end
+.venv\Scripts\python tests\test_comments.py # clicking a comment opens it
 .venv\Scripts\python tests\make_hard.py     # awkward multi-page fixture
 .venv\Scripts\python tests\test_edge.py     # edge cases and error paths
 .venv\Scripts\python tests\test_flows.py    # multi-step workflows

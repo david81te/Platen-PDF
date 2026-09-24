@@ -18,6 +18,8 @@ const S = {
   editing: null,
   hits: [],
   hitIndex: -1,
+  annots: [],
+  selectedAnnot: null,
   findQuery: '',
 };
 
@@ -238,6 +240,30 @@ async function buildOverlay() {
     ov.classList.add('crosshair');
   }
 
+
+  if (S.tool === 'select') {
+    S.annots = (await run('annot_list', S.page)) || [];
+    S.annots.forEach((a) => {
+      const hit = el('div', 'annothit' + (a.id === S.selectedAnnot ? ' on' : ''));
+      // A sticky note draws a small icon, so give tiny rects a usable target.
+      const w = Math.max(18, toPx(a.rect[2] - a.rect[0]));
+      const h = Math.max(18, toPx(a.rect[3] - a.rect[1]));
+      Object.assign(hit.style, {
+        left: toPx(a.rect[0]) + 'px', top: toPx(a.rect[1]) + 'px',
+        width: w + 'px', height: h + 'px',
+      });
+      hit.title = (a.author ? a.author + ': ' : '') + (a.content || a.type);
+      hit.onclick = (e) => { e.stopPropagation(); selectAnnot(a.id, true); };
+      ov.appendChild(hit);
+    });
+    if (S.selectedAnnot) {
+      const chosen = S.annots.find((a) => a.id === S.selectedAnnot);
+      if (chosen) showBubble(chosen);
+    }
+  } else {
+    S.annots = [];
+  }
+
   S.hits.forEach((h, i) => {
     if (h.page !== S.page) return;
     const mark = el('div', 'searchhit' + (i === S.hitIndex ? ' on' : ''));
@@ -258,6 +284,69 @@ async function buildOverlay() {
     });
     ov.appendChild(mark);
   });
+}
+
+/* ---- annotation comments ---- */
+
+function closeBubble() {
+  const open = document.querySelector('.bubble');
+  if (open) open.remove();
+}
+
+function showBubble(a) {
+  closeBubble();
+  const bubble = el('div', 'bubble');
+  const body = a.content
+    ? escapeHtml(a.content)
+    : '<i style="color:var(--muted)">No text on this ' + escapeHtml(a.type) + '.</i>';
+  bubble.innerHTML =
+    '<span class="x" title="Close">✕</span>' +
+    '<div class="who"><b>' + escapeHtml(a.author || 'Unsigned') + '</b>' +
+    '<span>' + escapeHtml(a.type) + '</span></div>' +
+    '<div class="txt">' + body + '</div>' +
+    '<div class="acts"><button data-edit>Edit</button>' +
+    '<button data-del class="danger">Delete</button></div>';
+
+  const left = Math.min(toPx(a.rect[0]) + 22, Math.max(0, $('overlay').clientWidth - 290));
+  bubble.style.left = Math.max(0, left) + 'px';
+  bubble.style.top = (toPx(a.rect[3]) + 6) + 'px';
+  $('overlay').appendChild(bubble);
+
+  bubble.querySelector('.x').onclick = () => { S.selectedAnnot = null; closeBubble(); buildOverlay(); };
+  bubble.querySelector('[data-edit]').onclick = () => editAnnot(a);
+  bubble.querySelector('[data-del]').onclick = () => deleteAnnot(a);
+}
+
+async function selectAnnot(id, fromPage) {
+  S.selectedAnnot = id;
+  if (!fromPage) showPane('comments');
+  await loadComments();
+  await buildOverlay();
+  const row = document.querySelector('.cmt.on');
+  if (row) row.scrollIntoView({ block: 'nearest' });
+}
+
+function editAnnot(a) {
+  modal('Edit comment',
+    '<div class="field"><label>Comment</label><textarea name="text" rows="5">' +
+    escapeHtml(a.content || '') + '</textarea></div>' +
+    '<div class="field"><label>Author</label><input name="author" value="' +
+    escapeHtml(a.author || '') + '"></div>',
+    async (v) => {
+      await run('annot_update', S.page, a.id, null, v.text, null, null, null, v.author);
+      await refresh(false);
+      await loadComments();
+      await buildOverlay();
+    }, 'Save');
+}
+
+async function deleteAnnot(a) {
+  if (!confirm('Delete this ' + a.type + '?')) return;
+  await run('annot_delete', S.page, a.id);
+  if (S.selectedAnnot === a.id) S.selectedAnnot = null;
+  closeBubble();
+  await refresh(false);
+  await loadComments();
 }
 
 /* ---- in-place text editing ---- */
@@ -443,8 +532,9 @@ async function addNote(p) {
     '<div class="field"><label>Author</label><input name="author" value=""></div>',
     async (v) => {
       if (!v.text.trim()) return;
-      await run('annot_note', S.page, [toPt(p.x), toPt(p.y)], v.text, v.author);
+      const made = await run('annot_note', S.page, [toPt(p.x), toPt(p.y)], v.text, v.author);
       await refresh(false);
+      if (made && made.id) { setTool('select'); await selectAnnot(made.id); }
     }, 'Add note');
 }
 
@@ -516,8 +606,11 @@ function resetPerDocumentState() {
   S.findQuery = '';
   S.layout = null;
   S.redactions = [];
+  S.annots = [];
+  S.selectedAnnot = null;
   S.fit = false;
   cancelEdit();
+  closeBubble();
   const box = $('findq');
   if (box) box.value = '';
 }
@@ -586,23 +679,29 @@ async function loadOutline() {
 async function loadComments() {
   const pane = $('pane-comments');
   if (!S.info) { pane.innerHTML = ''; return; }
-  const items = await run('annot_list', S.page);
+  const items = await run('annot_list', S.page) || [];
   pane.innerHTML = '';
-  if (!items || !items.length) {
-    pane.innerHTML = '<p class="hint">No annotations on this page.</p>';
+  if (!items.length) {
+    pane.innerHTML = '<p class="hint">Nothing marked up on this page yet. ' +
+      'Use the note, highlight, shape or stamp tools, then click anything on ' +
+      'the page to read it.</p>';
     return;
   }
   items.forEach((a) => {
-    const node = el('div', 'item',
-      '<div class="t">' + a.type + (a.content ? ': ' + escapeHtml(a.content.slice(0, 40)) : '') + '</div>' +
-      '<div class="s">' + (a.author || 'unsigned') + '</div>');
-    node.onclick = async () => {
-      if (confirm('Delete this ' + a.type + '?')) {
-        await run('annot_delete', S.page, a.id);
-        await refresh(false); loadComments();
-      }
+    const row = el('div', 'cmt' + (a.id === S.selectedAnnot ? ' on' : ''));
+    row.innerHTML =
+      '<div class="hdr"><span class="kind">' + escapeHtml(a.type) + '</span>' +
+      '<span>' + escapeHtml(a.author || 'unsigned') + '</span></div>' +
+      '<div class="body' + (a.content ? '' : ' empty') + '">' +
+      (a.content ? escapeHtml(a.content) : 'no text') + '</div>' +
+      '<div class="acts"><button data-edit>Edit</button>' +
+      '<button data-del>Delete</button></div>';
+    row.onclick = (e) => {
+      if (e.target.dataset.edit !== undefined) return editAnnot(a);
+      if (e.target.dataset.del !== undefined) return deleteAnnot(a);
+      selectAnnot(a.id);          // selecting is not deleting
     };
-    pane.appendChild(node);
+    pane.appendChild(row);
   });
 }
 
@@ -703,6 +802,7 @@ function drawInspector() {
 
 async function gotoPage(index) {
   if (!S.info) return;
+  if (S.page !== index) { S.selectedAnnot = null; closeBubble(); }
   S.page = Math.max(0, Math.min(index, S.info.page_count - 1));
   await drawPage();
   loadComments();
@@ -1028,6 +1128,7 @@ function renderHits(truncated) {
     ? (S.hitIndex + 1) + ' of ' + S.hits.length + (truncated ? '+' : '')
     : 'No matches';
   if (!S.hits.length) return;
+
   S.hits.forEach((h, i) => {
     const row = el('div', 'findrow' + (i === S.hitIndex ? ' on' : ''),
       '<div class="p">Page ' + (h.page + 1) + '</div>' +
