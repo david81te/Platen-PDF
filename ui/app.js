@@ -1205,12 +1205,27 @@ const ACTIONS = {
   bookmarks: () => promptBookmarks(),
 
   docx: async () => { const r = await busyRun('Converting to Word…', 'export_docx'); if (r && r.path) toast('Saved ' + baseName(r.path), 'ok'); },
-  xlsx: async () => { const r = await busyRun('Converting to Excel…', 'export_xlsx'); if (r && r.path) toast('Saved ' + baseName(r.path) + ' (' + r.tables + ' tables)', 'ok'); },
+  xlsx: async () => {
+    const r = await busyRun('Converting to Excel…', 'export_xlsx');
+    if (!r || !r.path) return;
+    toast(r.tables
+      ? 'Saved ' + baseName(r.path) + ' — ' + r.tables + ' table(s), numbers kept as numbers'
+      : 'No tables found, so ' + baseName(r.path) + ' holds the page text instead', 'ok');
+  },
   pptx: () => modal('Convert to PowerPoint',
-    '<div class="field"><label>Mode</label><select name="mode">' +
-    '<option value="editable">Editable text boxes</option>' +
-    '<option value="image">Exact page pictures</option></select></div>',
-    async (v) => { const r = await busyRun('Converting…', 'export_pptx', v.mode); if (r && r.path) toast('Saved ' + baseName(r.path), 'ok'); }, 'Convert'),
+    '<div class="field"><label>How</label><select name="mode">' +
+    '<option value="editable">Editable text over the page graphics</option>' +
+    '<option value="image">Exact picture of each page</option>' +
+    '<option value="text">Text boxes only, blank slides</option></select></div>' +
+    '<p class="hint"><b>Editable</b> keeps tables, rules and logos as the slide ' +
+    'background and puts real text on top, so the wording can be changed. ' +
+    '<b>Picture</b> looks exactly like the PDF but nothing can be edited.</p>',
+    async (v) => {
+      const r = await busyRun('Converting…', 'export_pptx', v.mode);
+      if (!r || !r.path) return;
+      toast('Saved ' + baseName(r.path) + ' — ' + r.slides + ' slides' +
+        (r.resized_pages ? ', ' + r.resized_pages + ' page(s) fitted to the slide size' : ''), 'ok');
+    }, 'Convert'),
   images: () => modal('Export as images',
     '<div class="row"><div class="field"><label>Resolution (DPI)</label><input name="dpi" type="number" value="200"></div>' +
     '<div class="field"><label>Format</label><select name="fmt"><option>png</option><option>jpg</option></select></div></div>',

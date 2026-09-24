@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import tempfile
 
@@ -10,6 +11,16 @@ import pymupdf as fitz
 from .session import PdfError
 
 PT_TO_EMU = 12700
+
+# Remove text but keep rules, shading and pictures -- used to build a slide
+# background that still shows tables while the words become editable.
+_KEEP_GRAPHICS = {}
+for _name, _attr in (("images", "PDF_REDACT_IMAGE_NONE"),
+                     ("graphics", "PDF_REDACT_LINE_ART_NONE"),
+                     ("text", "PDF_REDACT_TEXT_REMOVE")):
+    _value = getattr(fitz, _attr, None)
+    if _value is not None:
+        _KEEP_GRAPHICS[_name] = _value
 OFFICE_INPUTS = (".doc", ".docx", ".rtf", ".odt", ".txt",
                  ".xls", ".xlsx", ".csv", ".ppt", ".pptx", ".odp", ".ods")
 IMAGE_INPUTS = (".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tif", ".tiff", ".webp")
@@ -49,17 +60,121 @@ def to_docx(doc: fitz.Document, path: str, first: int = 0,
     return {"path": path}
 
 
-def to_xlsx(doc: fitz.Document, path: str) -> dict:
-    """Export detected tables to Excel, one sheet per table."""
+CURRENCY = {"$": '"$"#,##0.00', "£": '"£"#,##0.00',
+            "€": '"€"#,##0.00', "¥": '"¥"#,##0'}
+_NUMBER = re.compile(r"^-?[\d,]*\d(?:\.\d+)?$")
+
+
+def _coerce(raw):
+    """Turn a cell of PDF text into a real value plus a number format.
+
+    A column of prices exported as text cannot be summed, which is most of the
+    reason to open it in Excel at all. Anything not confidently numeric is left
+    as text rather than guessed at.
+    """
+    if raw is None:
+        return "", None
+    text = str(raw).strip()
+    if not text:
+        return "", None
+
+    negative = False
+    body = text
+    if body.startswith("(") and body.endswith(")"):    # (1,234) accounting style
+        negative, body = True, body[1:-1].strip()
+
+    fmt = None
+    symbol = body[:1]
+    if symbol in CURRENCY:
+        fmt = CURRENCY[symbol]
+        body = body[1:].strip()
+    elif body.endswith("%"):
+        fmt = "0.0%"
+        body = body[:-1].strip()
+
+    if not _NUMBER.match(body):
+        return text, None
+    try:
+        value = float(body.replace(",", ""))
+    except ValueError:
+        return text, None
+    if negative:
+        value = -value
+    if fmt == "0.0%":
+        value /= 100.0
+    if fmt is None:
+        fmt = "#,##0.00" if "." in body else "#,##0"
+    if float(value).is_integer() and fmt == "#,##0.00":
+        fmt = "#,##0"
+    return value, fmt
+
+
+def _looks_like_header(row) -> bool:
+    """A header row is text in every populated cell."""
+    filled = [c for c in row if str(c or "").strip()]
+    if not filled:
+        return False
+    return all(_coerce(c)[1] is None for c in filled)
+
+
+_BAD_SHEET_CHARS = re.compile("[" + re.escape("[]:*?/" + chr(92)) + "]")
+
+
+def _sheet_name(book, base: str) -> str:
+    """Excel sheet names: 31 characters, no brackets or slashes, and unique."""
+    clean = re.sub(_BAD_SHEET_CHARS, " ", base).strip() or "Sheet"
+    clean = clean[:31]
+    if clean not in book.sheetnames:
+        return clean
+    stem = clean[:27]
+    for n in range(2, 200):
+        candidate = "%s (%d)" % (stem, n)
+        if candidate not in book.sheetnames:
+            return candidate
+    return clean[:28] + "~"
+
+
+def _table_caption(page, table) -> str:
+    """The line of text just above a table, if there is one -- it names it."""
+    try:
+        box = fitz.Rect(table.bbox)
+    except Exception:
+        return ""
+    best, best_gap = "", 60
+    for block in page.get_text("dict").get("blocks", []):
+        if block.get("type") != 0:
+            continue
+        b = fitz.Rect(block["bbox"])
+        gap = box.y0 - b.y1
+        if 0 <= gap < best_gap and b.x1 > box.x0 and b.x0 < box.x1:
+            text = " ".join("".join(s.get("text", "") for s in line.get("spans", []))
+                            for line in block.get("lines", []))
+            text = " ".join(text.split())
+            if 0 < len(text) <= 60:
+                best, best_gap = text, gap
+    return best
+
+
+def to_xlsx(doc: fitz.Document, path: str, merge_continuations: bool = True) -> dict:
+    """Export detected tables to Excel, one sheet per table.
+
+    Numbers, currency and percentages become real numeric cells so they can be
+    summed and charted. A table continuing on the next page under the same
+    headings is appended to the same sheet rather than split across two.
+    """
     try:
         from openpyxl import Workbook
-        from openpyxl.styles import Font
+        from openpyxl.styles import Alignment, Font, PatternFill
+        from openpyxl.utils import get_column_letter
     except ImportError as exc:
         raise PdfError("The Excel converter is not installed.") from exc
 
     book = Workbook()
     book.remove(book.active)
     tables = 0
+    sheets = []
+    last = None          # (sheet, header tuple, column count)
+
     for index in range(doc.page_count):
         page = doc[index]
         try:
@@ -67,112 +182,202 @@ def to_xlsx(doc: fitz.Document, path: str) -> dict:
         except Exception:
             found = []
         for number, table in enumerate(found, start=1):
-            rows = table.extract()
+            rows = [r for r in table.extract() if any(str(c or "").strip() for c in r)]
             if not rows:
                 continue
-            tables += 1
-            sheet = book.create_sheet("P%d_T%d" % (index + 1, number))
+            header = tuple(str(c or "").strip() for c in rows[0])
+            has_header = _looks_like_header(rows[0])
+
+            sheet = None
+            if (merge_continuations and last and has_header
+                    and last[1] == header and last[2] == len(rows[0])):
+                sheet = last[0]          # same table, continued on this page
+                rows = rows[1:]
+            if sheet is None:
+                caption = _table_caption(page, table)
+                base = caption or "Page %d table %d" % (index + 1, number)
+                sheet = book.create_sheet(_sheet_name(book, base))
+                sheets.append(sheet.title)
+                tables += 1
+                last = (sheet, header if has_header else None, len(rows[0]))
+
             for row in rows:
-                sheet.append(["" if cell is None else str(cell) for cell in row])
-            for cell in sheet[1]:
-                cell.font = Font(bold=True)
-            for column in sheet.columns:
-                longest = max((len(str(c.value or "")) for c in column), default=8)
-                sheet.column_dimensions[column[0].column_letter].width = min(60, longest + 2)
+                values, formats = [], []
+                for cell in row:
+                    value, fmt = _coerce(cell)
+                    values.append(value)
+                    formats.append(fmt)
+                sheet.append(values)
+                for column, fmt in enumerate(formats, start=1):
+                    if fmt:
+                        sheet.cell(row=sheet.max_row, column=column).number_format = fmt
+
     if not tables:
-        # No detectable grid: fall back to page text so the export is never empty.
+        # Nothing grid-like: give them the page text rather than an empty file.
         sheet = book.create_sheet("Text")
         sheet.append(["Page", "Line"])
         for index in range(doc.page_count):
             for line in doc[index].get_text().splitlines():
                 if line.strip():
-                    sheet.append([index + 1, line])
+                    sheet.append([index + 1, line.rstrip()])
+        sheets.append("Text")
+
+    heading = Font(bold=True, color="1F2937")
+    shade = PatternFill("solid", fgColor="EEF2F8")
+    for sheet in book:
+        if sheet.max_row > 1:
+            for cell in sheet[1]:
+                cell.font = heading
+                cell.fill = shade
+                cell.alignment = Alignment(vertical="center", wrap_text=True)
+            sheet.freeze_panes = "A2"
+            sheet.auto_filter.ref = sheet.dimensions
+        for column in sheet.columns:
+            longest = max((len(str(c.value if c.value is not None else "")))
+                          for c in column)
+            letter = get_column_letter(column[0].column)
+            sheet.column_dimensions[letter].width = max(9, min(52, longest + 3))
+
     book.save(path)
-    return {"path": path, "tables": tables}
+    return {"path": path, "tables": tables, "sheets": sheets}
+
+
+def _pptx_font(pdf_font: str) -> str:
+    """A font family PowerPoint can resolve, from a PDF font name."""
+    from . import fonts as fontmod
+    name = fontmod.normalize(pdf_font or "")
+    name = re.split(r"[-,]", name)[0]
+    name = re.sub(r"(MT|PS|PSMT|Std|Pro)$", "", name).strip()
+    spaced = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", name)   # TimesNewRoman -> Times New Roman
+    return spaced or "Calibri"
+
+
+def _graphics_only(doc: fitz.Document, page_no: int, zoom: float):
+    """Render a page with its text removed, keeping rules, shading and images.
+
+    This becomes the slide background, so tables, logos and boxes survive while
+    the words on top stay editable. Rendering the whole page instead would bake
+    the text into a picture; dropping the graphics would lose every table
+    border.
+    """
+    scratch = fitz.open()
+    scratch.insert_pdf(doc, from_page=page_no, to_page=page_no)
+    page = scratch[0]
+    for block in page.get_text("dict").get("blocks", []):
+        if block.get("type") == 0:
+            page.add_redact_annot(fitz.Rect(block["bbox"]))
+    try:
+        page.apply_redactions(**_KEEP_GRAPHICS)
+    except Exception:
+        pass
+    pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+    scratch.close()
+    return pix
+
+
+def _deck_size(doc: fitz.Document) -> tuple[float, float]:
+    """PowerPoint allows one slide size per deck, so pick the commonest page."""
+    tally: dict[tuple[int, int], int] = {}
+    for index in range(doc.page_count):
+        rect = doc[index].rect
+        key = (round(rect.width), round(rect.height))
+        tally[key] = tally.get(key, 0) + 1
+    best = max(tally.items(), key=lambda kv: (kv[1], kv[0][0] * kv[0][1]))[0]
+    return float(best[0]), float(best[1])
 
 
 def to_pptx(doc: fitz.Document, path: str, mode: str = "editable",
             dpi: int = 150) -> dict:
     """Export to PowerPoint.
 
-    editable - text becomes real text boxes and images are placed separately
-    image    - each page is rendered as a full-slide picture (exact but flat)
+    editable - page graphics as the slide background, with real text boxes on
+               top, so the wording can be changed but tables and rules survive
+    image    - each page as one flat picture: exact, nothing editable
+    text     - text boxes only, on a blank slide
     """
     try:
         from pptx import Presentation
         from pptx.util import Emu, Pt
         from pptx.dml.color import RGBColor
+        from pptx.enum.text import PP_ALIGN
     except ImportError as exc:
         raise PdfError("The PowerPoint converter is not installed.") from exc
 
     deck = Presentation()
-    first = doc[0].rect
-    deck.slide_width = Emu(int(first.width * PT_TO_EMU))
-    deck.slide_height = Emu(int(first.height * PT_TO_EMU))
+    deck_w, deck_h = _deck_size(doc)
+    deck.slide_width = Emu(int(deck_w * PT_TO_EMU))
+    deck.slide_height = Emu(int(deck_h * PT_TO_EMU))
     blank = deck.slide_layouts[6]
     scratch = tempfile.mkdtemp(prefix="pdf2pptx_")
+    zoom = max(72, min(int(dpi), 400)) / 72.0
+    scaled_pages = 0
 
     try:
         for index in range(doc.page_count):
             page = doc[index]
+            rect = page.rect
             slide = deck.slides.add_slide(blank)
-            if mode == "image":
-                zoom = dpi / 72.0
-                image_path = os.path.join(scratch, "page%d.png" % index)
-                page.get_pixmap(matrix=fitz.Matrix(zoom, zoom)).save(image_path)
-                slide.shapes.add_picture(image_path, 0, 0,
-                                         width=deck.slide_width,
-                                         height=deck.slide_height)
-                continue
 
-            for number, info in enumerate(page.get_images(full=True)):
-                try:
-                    pix = fitz.Pixmap(doc, info[0])
-                    if pix.n - pix.alpha >= 4:
-                        pix = fitz.Pixmap(fitz.csRGB, pix)
-                    image_path = os.path.join(scratch, "p%d_i%d.png" % (index, number))
-                    pix.save(image_path)
-                    for box in page.get_image_rects(info[0]):
-                        slide.shapes.add_picture(
-                            image_path, Emu(int(box.x0 * PT_TO_EMU)),
-                            Emu(int(box.y0 * PT_TO_EMU)),
-                            Emu(int(box.width * PT_TO_EMU)),
-                            Emu(int(box.height * PT_TO_EMU)))
-                except Exception:
-                    continue
+            # Pages that differ from the deck size are fitted and centred
+            # rather than stretched out of shape.
+            scale = min(deck_w / rect.width, deck_h / rect.height)
+            if abs(scale - 1.0) > 0.001:
+                scaled_pages += 1
+            off_x = (deck_w - rect.width * scale) / 2
+            off_y = (deck_h - rect.height * scale) / 2
+
+            def emu(value, offset=0.0):
+                return Emu(int((offset + value * scale) * PT_TO_EMU))
+
+            if mode != "text":
+                pix = (page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+                       if mode == "image" else _graphics_only(doc, index, zoom))
+                image_path = os.path.join(scratch, "bg%03d.png" % index)
+                pix.save(image_path)
+                slide.shapes.add_picture(
+                    image_path, emu(0, off_x), emu(0, off_y),
+                    Emu(int(rect.width * scale * PT_TO_EMU)),
+                    Emu(int(rect.height * scale * PT_TO_EMU)))
+            if mode == "image":
+                continue
 
             for block in page.get_text("dict").get("blocks", []):
                 if block.get("type") != 0:
                     continue
+                lines = [ln for ln in block.get("lines", []) if ln.get("spans")]
+                if not lines:
+                    continue
                 bbox = fitz.Rect(block["bbox"])
                 box = slide.shapes.add_textbox(
-                    Emu(int(bbox.x0 * PT_TO_EMU)), Emu(int(bbox.y0 * PT_TO_EMU)),
-                    Emu(int(max(bbox.width, 10) * PT_TO_EMU)),
-                    Emu(int(max(bbox.height, 10) * PT_TO_EMU)))
+                    emu(bbox.x0 - 1, off_x), emu(bbox.y0 - 1, off_y),
+                    emu(max(bbox.width + 6, 12)), emu(max(bbox.height + 4, 10)))
                 frame = box.text_frame
-                frame.word_wrap = True
-                first_line = True
-                for line in block.get("lines", []):
-                    text = "".join(s.get("text", "") for s in line.get("spans", []))
-                    if not text.strip():
-                        continue
-                    para = frame.paragraphs[0] if first_line else frame.add_paragraph()
-                    first_line = False
-                    run = para.add_run()
-                    run.text = text
-                    spans = line.get("spans", [])
-                    if spans:
-                        span = spans[0]
-                        run.font.size = Pt(max(6, span.get("size", 11)))
-                        run.font.bold = bool(span.get("flags", 0) & 16)
-                        run.font.italic = bool(span.get("flags", 0) & 2)
+                frame.word_wrap = False
+                frame.margin_left = frame.margin_right = 0
+                frame.margin_top = frame.margin_bottom = 0
+
+                for line_no, line in enumerate(lines):
+                    para = frame.paragraphs[0] if line_no == 0 else frame.add_paragraph()
+                    para.alignment = PP_ALIGN.LEFT
+                    for span in line["spans"]:
+                        text = span.get("text", "")
+                        if not text:
+                            continue
+                        run = para.add_run()
+                        run.text = text
+                        flags = span.get("flags", 0)
+                        run.font.size = Pt(max(5, round(span.get("size", 11) * scale, 1)))
+                        run.font.bold = bool(flags & 16)
+                        run.font.italic = bool(flags & 2)
+                        run.font.name = _pptx_font(span.get("font", ""))
                         red, green, blue = fitz.sRGB_to_pdf(span.get("color", 0))
                         run.font.color.rgb = RGBColor(int(red * 255), int(green * 255),
                                                       int(blue * 255))
         deck.save(path)
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
-    return {"path": path, "slides": doc.page_count}
+    return {"path": path, "slides": doc.page_count, "mode": mode,
+            "resized_pages": scaled_pages}
 
 
 def to_images(doc: fitz.Document, out_dir: str, dpi: int = 200,
