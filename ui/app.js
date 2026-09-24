@@ -4,7 +4,8 @@ const S = {
   info: null,
   page: 0,
   zoom: 1.25,
-  fit: false,
+  zoomMode: 'width',   // width | page | fixed
+  sizes: null,        // page dimensions, cached per document
   tool: 'select',
   layout: null,
   scale: 1,          // rendered pixels per PDF point
@@ -154,6 +155,7 @@ function escapeHtml(s) {
 
 async function refresh(full = true) {
   if (S.hits.length) { S.hits = []; S.hitIndex = -1; renderHits(false); }
+  S.sizes = null;                      // pages may have been added or rotated
   setInfo(await run('doc_info'));
   refreshTabs();
   if (!S.info) return;
@@ -161,15 +163,38 @@ async function refresh(full = true) {
   if (full) { loadThumbs(); loadOutline(); loadComments(); }
 }
 
+// The stage pads the page and the viewer may show a scrollbar; leave room for
+// both or a fit-to-width page triggers the very scrollbar it has to fit inside.
+const STAGE_PAD = 44;
+const SCROLLBAR = 18;
+
+function applyZoomMode() {
+  if (S.zoomMode === 'fixed' || !S.info || !S.sizes) return;
+  const size = S.sizes[S.page];
+  if (!size) return;
+  const view = $('viewer');
+  const availH = Math.max(120, view.clientHeight - STAGE_PAD);
+  let availW = Math.max(120, view.clientWidth - STAGE_PAD);
+
+  // clientWidth already excludes a scrollbar that is on screen. Only reserve
+  // room for one when there is none yet but scaling up would summon it --
+  // otherwise the allowance is counted twice and the page sits short.
+  const hasScrollbar = view.scrollHeight > view.clientHeight + 1;
+  if (!hasScrollbar && size.height * (availW / size.width) > availH) {
+    availW = Math.max(120, availW - SCROLLBAR);
+  }
+
+  const byWidth = availW / size.width;
+  const zoom = S.zoomMode === 'page'
+    ? Math.min(byWidth, availH / size.height)
+    : byWidth;
+  S.zoom = Math.max(0.1, Math.min(6, zoom));
+}
+
 async function drawPage() {
   if (!S.info) return;
-  if (S.fit) {
-    const sizes = await run('page_sizes');
-    if (sizes && sizes[S.page]) {
-      const avail = $('viewer').clientWidth - 60;
-      S.zoom = Math.max(0.2, Math.min(4, avail / sizes[S.page].width));
-    }
-  }
+  if (!S.sizes) S.sizes = await run('page_sizes');
+  applyZoomMode();
   const data = await run('render', S.page, S.zoom);
   if (!data) return;
   const img = $('pageimg');
@@ -183,7 +208,7 @@ async function drawPage() {
   cv.width = data.width; cv.height = data.height;
   cv.style.width = data.width + 'px'; cv.style.height = data.height + 'px';
   S.scale = data.width / data.pdf_width;
-  $('zoomlabel').textContent = Math.round(S.zoom * 100) + '%';
+  syncZoomLabel();
   $('pagenum').value = S.page + 1;
   S.layout = null;
   await buildOverlay();
@@ -785,7 +810,7 @@ function resetPerDocumentState() {
   S.redactions = [];
   S.annots = [];
   S.selectedAnnot = null;
-  S.fit = false;
+  S.sizes = null;                      // zoom mode is a preference, so it stays
   cancelEdit();
   closeBubble();
   const box = $('findq');
@@ -1467,9 +1492,38 @@ $('findprev').onclick = () => goToHit(S.hitIndex - 1);
 $('prev').onclick = () => gotoPage(S.page - 1);
 $('next').onclick = () => gotoPage(S.page + 1);
 $('pagenum').onchange = () => gotoPage((parseInt($('pagenum').value, 10) || 1) - 1);
-$('zoomin').onclick = () => { S.fit = false; S.zoom = Math.min(5, S.zoom * 1.2); drawPage(); };
-$('zoomout').onclick = () => { S.fit = false; S.zoom = Math.max(0.15, S.zoom / 1.2); drawPage(); };
-$('zoomfit').onclick = () => { S.fit = !S.fit; drawPage(); };
+function syncZoomLabel() {
+  const pick = $('zoompick');
+  if (pick) pick.value = S.zoomMode === 'fixed' ? 'fixed' : S.zoomMode;
+  const label = $('zoomlabel');
+  if (label) label.textContent = Math.round(S.zoom * 100) + '%';
+}
+
+function setZoom(mode, value) {
+  S.zoomMode = mode;
+  if (mode === 'fixed' && value) S.zoom = Math.max(0.1, Math.min(6, value));
+  drawPage();
+}
+
+$('zoomin').onclick = () => setZoom('fixed', S.zoom * 1.2);
+$('zoomout').onclick = () => setZoom('fixed', S.zoom / 1.2);
+$('zoomfit').onclick = () => setZoom(S.zoomMode === 'width' ? 'page' : 'width');
+const zoompick = $('zoompick');
+if (zoompick) {
+  zoompick.onchange = () => {
+    const v = zoompick.value;
+    if (v === 'width' || v === 'page') setZoom(v);
+    else setZoom('fixed', parseFloat(v));
+  };
+}
+
+// Re-fit when the window changes size, which is what maximising does.
+let resizeTimer = null;
+window.addEventListener('resize', () => {
+  if (!S.info || S.zoomMode === 'fixed') return;
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => drawPage(), 110);
+});
 
 /* ---------- mouse wheel ---------- */
 // Ctrl+wheel zooms. Plain wheel scrolls the page, and rolls on to the next or
@@ -1482,7 +1536,7 @@ let pageFlipAt = 0;
 function queueZoom() {
   clearTimeout(zoomTimer);
   zoomTimer = setTimeout(() => drawPage(), 90);
-  $('zoomlabel').textContent = Math.round(S.zoom * 100) + '%';
+  syncZoomLabel();
 }
 
 $('viewer').addEventListener('wheel', (e) => {
@@ -1490,7 +1544,7 @@ $('viewer').addEventListener('wheel', (e) => {
 
   if (e.ctrlKey || e.metaKey) {
     e.preventDefault();
-    S.fit = false;
+    S.zoomMode = 'fixed';
     const step = e.deltaY < 0 ? 1.12 : 1 / 1.12;
     S.zoom = Math.max(0.15, Math.min(6, S.zoom * step));
     queueZoom();

@@ -111,10 +111,21 @@
   </div>
   <div class="spacer"></div>
   <div class="zoombox">
-    <button id="zoomout">−</button>
+    <button id="zoomout" title="Zoom out">−</button>
     <span id="zoomlabel">100%</span>
-    <button id="zoomin">+</button>
-    <button id="zoomfit" title="Fit width">⤢</button>
+    <button id="zoomin" title="Zoom in">+</button>
+    <select id="zoompick" title="Zoom">
+      <option value="width">Fit width</option>
+      <option value="page">Fit page</option>
+      <option value="0.5">50%</option>
+      <option value="0.75">75%</option>
+      <option value="1">100%</option>
+      <option value="1.25">125%</option>
+      <option value="1.5">150%</option>
+      <option value="2">200%</option>
+      <option value="fixed" hidden>Custom</option>
+    </select>
+    <button id="zoomfit" title="Toggle fit width / fit page">⤢</button>
   </div>
 </div>
 

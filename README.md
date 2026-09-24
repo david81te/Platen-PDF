@@ -164,6 +164,7 @@ backgrounds, hyperlinks, bookmarks, document properties, 25-step undo.
 
 | Action | Result |
 | --- | --- |
+| Zoom box | Fit width, fit page, or a set percentage |
 | Wheel | Scroll the page; at the top or bottom edge, turn to the previous/next page |
 | Ctrl + wheel | Zoom in and out |
 | Ctrl+O / Ctrl+S | Open / Save |
@@ -171,6 +172,9 @@ backgrounds, hyperlinks, bookmarks, document properties, 25-step undo.
 | Ctrl+F | Find |
 | Page Up/Down, arrows | Previous / next page |
 | Esc | Cancel the current edit and return to the Select tool |
+
+The page refits whenever the window changes size, including maximising, unless a
+fixed percentage has been chosen. Fit width is the default.
 
 When a page already fits the window there is nothing to scroll, so the wheel
 turns pages immediately.

@@ -38,6 +38,10 @@ def drive(window):
                 break
             time.sleep(0.25)
         check("document opened", js("S.info && S.info.name"), "fixture.pdf")
+        for _ in range(40):
+            if js("document.getElementById('pageimg').src.slice(0,14)") == "data:image/png":
+                break
+            time.sleep(0.25)
         check("page rendered", js("document.getElementById('pageimg').src.slice(0,14)"),
               "data:image/png")
 
@@ -90,7 +94,7 @@ def drive(window):
         print("")
 
         print("-- wheel and editor --")
-        js("S.fit=false; S.zoom=1.25; drawPage()")
+        js("setZoom('fixed', 1.25)")
         time.sleep(1.0)
         before_zoom = js("S.zoom")
         js("""document.getElementById('viewer').dispatchEvent(
@@ -108,7 +112,7 @@ def drive(window):
             if js("S.info && S.info.page_count") == 7:
                 break
             time.sleep(0.25)
-        js("S.fit=true; drawPage()")
+        js("setZoom('page')")
         time.sleep(1.4)
         start_page = js("S.page")
         js("""const v=document.getElementById('viewer');

@@ -93,6 +93,7 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
 .spacer { flex: 1; }
 .zoombox { display: flex; align-items: center; gap: 4px; }
 .zoombox button { width: 28px; padding: 3px 0; }
+#zoompick { width: auto; padding: 3px 6px; font-size: 12px; }
 #zoomlabel { min-width: 46px; text-align: center; color: var(--muted); }
 
 /* ---- layout ---- */
