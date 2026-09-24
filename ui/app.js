@@ -300,7 +300,79 @@ async function buildOverlay() {
 
 const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
 
+function drawLineSelection(a) {
+  // A line has no rectangle to resize: it has two ends. Round grips move each
+  // end (so the point of an arrow can be aimed anywhere), and the square grip
+  // in the middle slides the whole thing.
+  const ov = $('overlay');
+  let pts = a.points.map((p) => p.slice());
+
+  const guide = el('div', 'lineguide');
+  guide.innerHTML = '<svg width="100%" height="100%" style="overflow:visible">' +
+    '<line stroke="#4c8dff" stroke-width="1.5" stroke-dasharray="4 3"/></svg>';
+  Object.assign(guide.style, { left: '0', top: '0', width: '100%', height: '100%' });
+  ov.appendChild(guide);
+  const svgLine = guide.querySelector('line');
+
+  const grips = [
+    el('div', 'endpoint'),
+    el('div', 'endpoint tip'),
+    el('div', 'linemove'),
+  ];
+  grips[0].title = 'Drag to move the tail';
+  grips[1].title = 'Drag to aim the point';
+  grips[2].title = 'Drag to move the whole arrow';
+  grips.forEach((g) => ov.appendChild(g));
+
+  const paint = () => {
+    grips[0].style.left = toPx(pts[0][0]) + 'px';
+    grips[0].style.top = toPx(pts[0][1]) + 'px';
+    grips[1].style.left = toPx(pts[1][0]) + 'px';
+    grips[1].style.top = toPx(pts[1][1]) + 'px';
+    grips[2].style.left = toPx((pts[0][0] + pts[1][0]) / 2) + 'px';
+    grips[2].style.top = toPx((pts[0][1] + pts[1][1]) / 2) + 'px';
+    svgLine.setAttribute('x1', toPx(pts[0][0]));
+    svgLine.setAttribute('y1', toPx(pts[0][1]));
+    svgLine.setAttribute('x2', toPx(pts[1][0]));
+    svgLine.setAttribute('y2', toPx(pts[1][1]));
+  };
+  paint();
+
+  let drag = null;
+  grips.forEach((grip, index) => {
+    grip.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      try { grip.setPointerCapture(e.pointerId); } catch (err) { /* non-fatal */ }
+      drag = { which: index, x: e.clientX, y: e.clientY, from: pts.map((p) => p.slice()) };
+    });
+    grip.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      const dx = toPt(e.clientX - drag.x);
+      const dy = toPt(e.clientY - drag.y);
+      if (drag.which === 2) {
+        pts = drag.from.map((p) => [p[0] + dx, p[1] + dy]);
+      } else {
+        pts = drag.from.map((p) => p.slice());
+        pts[drag.which] = [drag.from[drag.which][0] + dx, drag.from[drag.which][1] + dy];
+      }
+      paint();
+    });
+    const done = async () => {
+      if (!drag) return;
+      drag = null;
+      const res = await run('annot_line_points', S.page, a.id, pts);
+      if (res && res.id) S.selectedAnnot = res.id;   // rebuilt, so the id moved
+      await refresh(false);
+      await loadComments();
+    };
+    grip.addEventListener('pointerup', done);
+    grip.addEventListener('pointercancel', done);
+  });
+}
+
 function drawSelection(a) {
+  if (a.points && a.points.length === 2) return drawLineSelection(a);
   const frame = el('div', 'selframe');
   const place = (r) => Object.assign(frame.style, {
     left: toPx(r[0]) + 'px', top: toPx(r[1]) + 'px',

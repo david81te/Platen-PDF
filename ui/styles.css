@@ -320,3 +320,17 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
 .handle[data-h="s"]  { left: 50%; margin-left: -5px; bottom: -5px; cursor: ns-resize; }
 .handle[data-h="sw"] { left: -5px; bottom: -5px; cursor: nesw-resize; }
 .handle[data-h="w"]  { left: -5px; top: 50%; margin-top: -5px; cursor: ew-resize; }
+
+/* ---- line and arrow controls ---- */
+.endpoint {
+  position: absolute; width: 13px; height: 13px; margin: -7px 0 0 -7px;
+  border-radius: 50%; background: #fff; border: 2px solid var(--accent);
+  cursor: crosshair; z-index: 46;
+}
+.endpoint.tip { border-color: #ff8c1a; background: #fff3e0; }
+.linemove {
+  position: absolute; width: 13px; height: 13px; margin: -7px 0 0 -7px;
+  border-radius: 3px; background: var(--accent); border: 2px solid #fff;
+  cursor: move; z-index: 46;
+}
+.lineguide { position: absolute; pointer-events: none; z-index: 44; }

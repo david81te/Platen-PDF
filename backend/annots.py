@@ -46,6 +46,9 @@ def type_name(annot) -> str:
     return FRIENDLY.get(raw, raw.lower())
 
 
+LINE_KINDS = ("Line",)
+
+
 def _words_in(page: fitz.Page, rect: fitz.Rect) -> list[fitz.Quad]:
     """Quads for words overlapping a rectangle, so markup follows the text."""
     quads = []
@@ -122,6 +125,10 @@ def add_shape(doc: fitz.Document, page_no: int, kind: str, points: list[list[flo
     elif kind == "arrow":
         annot = page.add_line_annot(fitz.Point(points[0]), fitz.Point(points[1]))
         annot.set_line_ends(fitz.PDF_ANNOT_LE_NONE, fitz.PDF_ANNOT_LE_CLOSED_ARROW)
+        # A closed arrow head is only an outline until the interior is
+        # coloured, which reads as a hollow triangle.
+        if fill is None:
+            fill = color
     elif kind == "polygon":
         annot = page.add_polygon_annot([fitz.Point(p) for p in points])
     else:
@@ -178,10 +185,21 @@ def listing(doc: fitz.Document, page_no: int) -> list[dict]:
         info = annot.info
         rect = annot.rect
         colors = annot.colors or {}
+        # Only lines carry meaningful endpoints. Free-text annotations also
+        # report two vertices, but they are callout/quadding artefacts --
+        # treating them as endpoints gave text boxes line controls instead of
+        # a resize frame.
+        vertices = []
+        if annot.type[1] in LINE_KINDS:
+            try:
+                vertices = [[float(x), float(y)] for x, y in (annot.vertices or [])]
+            except Exception:
+                vertices = []
         out.append({
             "id": annot.xref,
             "type": type_name(annot),
             "is_signature": info.get("content") == "Signature",
+            "points": vertices if len(vertices) == 2 else [],
             "rect": [rect.x0, rect.y0, rect.x1, rect.y1],
             "content": info.get("content", ""),
             "author": info.get("title", ""),
@@ -200,6 +218,55 @@ def _find(page: fitz.Page, annot_id: int):
     raise PdfError("That annotation no longer exists.")
 
 
+def _style_of(annot) -> dict:
+    colors = annot.colors or {}
+    border = annot.border or {}
+    info = annot.info
+    return {
+        "stroke": tuple(colors.get("stroke") or (0.85, 0.1, 0.1)),
+        "fill": tuple(colors.get("fill")) if colors.get("fill") else None,
+        "width": border.get("width") or 1.5,
+        "opacity": annot.opacity if annot.opacity is not None else 1.0,
+        "ends": annot.line_ends or (0, 0),
+        "author": info.get("title", ""),
+        "content": info.get("content", ""),
+    }
+
+
+def update_line(doc: fitz.Document, page_no: int, annot_id: int,
+                points: list[list[float]]) -> dict:
+    """Move a line or arrow's endpoints.
+
+    PyMuPDF exposes vertices read-only and refuses set_rect on a line, so the
+    annotation is rebuilt in place with its styling carried across. The xref
+    changes, which is why the new id is returned.
+    """
+    if not points or len(points) != 2:
+        raise PdfError("A line needs exactly two points.")
+    page = doc[page_no]
+    annot = _find(page, annot_id)
+    if annot.type[1] not in LINE_KINDS:
+        raise PdfError("That annotation is not a line.")
+    style = _style_of(annot)
+    page.delete_annot(annot)
+
+    made = page.add_line_annot(fitz.Point(points[0]), fitz.Point(points[1]))
+    ends = tuple(style["ends"])
+    if ends != (0, 0):
+        made.set_line_ends(ends[0], ends[1])
+    fill = style["fill"]
+    if fill is None and fitz.PDF_ANNOT_LE_CLOSED_ARROW in ends:
+        fill = style["stroke"]      # fill in heads left hollow by older versions
+    made.set_colors(stroke=style["stroke"], fill=fill)
+    made.set_border(width=style["width"])
+    made.set_opacity(style["opacity"])
+    if style["author"] or style["content"]:
+        made.set_info(title=style["author"], content=style["content"])
+    made.update()
+    return {"id": made.xref, "type": "line",
+            "points": [list(points[0]), list(points[1])]}
+
+
 def update(doc: fitz.Document, page_no: int, annot_id: int,
            rect: list[float] | None = None, content: str | None = None,
            color: tuple | None = None, fill: tuple | None = None,
@@ -207,7 +274,16 @@ def update(doc: fitz.Document, page_no: int, annot_id: int,
     page = doc[page_no]
     annot = _find(page, annot_id)
     if rect is not None:
-        annot.set_rect(fitz.Rect(rect))
+        if annot.type[1] in LINE_KINDS:
+            # Lines have no Rect to set; shift the endpoints by the same delta.
+            old = annot.rect
+            dx = fitz.Rect(rect).x0 - old.x0
+            dy = fitz.Rect(rect).y0 - old.y0
+            moved = [[x + dx, y + dy] for x, y in (annot.vertices or [])]
+            if len(moved) == 2:
+                return update_line(doc, page_no, annot_id, moved)
+        else:
+            annot.set_rect(fitz.Rect(rect))
     if color is not None or fill is not None:
         annot.set_colors(stroke=color, fill=fill)
     if opacity is not None:

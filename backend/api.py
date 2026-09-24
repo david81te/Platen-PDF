@@ -540,6 +540,11 @@ class Api:
                             None if opacity is None else float(opacity), author)
 
     @endpoint
+    def annot_line_points(self, index, annot_id, points):
+        """Reshape a line or arrow. The annotation is rebuilt, so the id changes."""
+        return self._mutate(annots.update_line, int(index), int(annot_id), points)
+
+    @endpoint
     def annot_delete(self, index, annot_id):
         return self._mutate(annots.delete, int(index), int(annot_id))
 

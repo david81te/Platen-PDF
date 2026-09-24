@@ -83,6 +83,43 @@ def drive(window):
     time.sleep(2.5)
     check("flattening locks it", js("document.querySelectorAll('.annothit').length"), 0)
     check("and the frame is gone", js("document.querySelectorAll('.selframe').length"), 0)
+
+    # --- arrows: endpoints, not a bounding box ---
+    js("window.pywebview.api.annot_shape(0,'arrow',[[120,420],[320,480]])")
+    time.sleep(1.8)
+    js("setTool('select')")
+    for _ in range(40):
+        if js("document.querySelectorAll('.annothit').length"): break
+        time.sleep(0.25)
+    js("document.querySelector('.annothit').click()")
+    time.sleep(1.8)
+    check("arrow reports its two endpoints",
+          js("(S.annots[0]||{}).points && S.annots[0].points.length"), 2)
+    check("arrow head is filled solid",
+          js("((S.annots[0]||{}).fill||[]).length"), 3)
+    check("arrow gets endpoint grips not a box frame",
+          js("document.querySelectorAll('.endpoint').length"), 2)
+    check("and a grip to slide the whole arrow",
+          js("document.querySelectorAll('.linemove').length"), 1)
+    check("no rectangle handles on a line",
+          js("document.querySelectorAll('.selframe').length"), 0)
+
+    tip_before = js("S.annots[0].points[1].map(Math.round)")
+    js("""(function(){
+      const g = document.querySelectorAll('.endpoint')[1];
+      const r = g.getBoundingClientRect();
+      const x = r.left + r.width/2, y = r.top + r.height/2;
+      const o = (a,b)=>({pointerId:9,bubbles:true,cancelable:true,clientX:a,clientY:b});
+      g.dispatchEvent(new PointerEvent('pointerdown', o(x,y)));
+      g.dispatchEvent(new PointerEvent('pointermove', o(x+70,y-90)));
+      g.dispatchEvent(new PointerEvent('pointerup',   o(x+70,y-90)));
+    })()""")
+    time.sleep(2.5)
+    tip_after = js("S.annots[0].points[1].map(Math.round)")
+    check("dragging the tip aims the arrow", tip_after,
+          lambda r: r and r != tip_before)
+    check("the tail stayed put",
+          js("S.annots[0].points[0].map(Math.round)"), lambda r: r == [120, 420])
     window.destroy()
 
 
