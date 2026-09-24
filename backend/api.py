@@ -524,10 +524,11 @@ class Api:
         return signatures.remove(identifier)
 
     @endpoint
-    def sig_place(self, index, identifier, rect, date_text=""):
+    def sig_place(self, index, identifier, rect, date_text="", flatten=False):
         doc = self._session.require()
         self._session.checkpoint()
-        result = signatures.place_dated(doc, int(index), identifier, rect, date_text)
+        result = signatures.place_dated(doc, int(index), identifier, rect,
+                                        date_text, flatten=bool(flatten))
         self._session.touch()
         if date_text:
             self._session.reload()

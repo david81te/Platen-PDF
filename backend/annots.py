@@ -30,12 +30,20 @@ STAMPS = {
 }
 
 
-TYPE_NAMES = {
-    0: "note", 1: "link", 2: "freetext", 3: "line", 4: "rect", 5: "circle",
-    6: "polygon", 7: "polyline", 8: "highlight", 9: "underline", 10: "squiggly",
-    11: "strikeout", 12: "stamp", 13: "caret", 14: "ink", 15: "popup",
-    16: "fileattachment", 17: "sound", 18: "movie", 19: "widget",
+# PyMuPDF already names each annotation type, and its numbering has caught me
+# out before (12 is Redact, 13 is Stamp, not the other way round), so ask it
+# rather than keeping a parallel table. Only the display wording is ours.
+FRIENDLY = {
+    "Text": "note",
+    "FreeText": "text box",
+    "StrikeOut": "strikeout",
+    "FileAttachment": "attachment",
 }
+
+
+def type_name(annot) -> str:
+    raw = annot.type[1] if len(annot.type) > 1 else str(annot.type[0])
+    return FRIENDLY.get(raw, raw.lower())
 
 
 def _words_in(page: fitz.Page, rect: fitz.Rect) -> list[fitz.Quad]:
@@ -85,13 +93,20 @@ def add_textbox(doc: fitz.Document, page_no: int, rect: list[float], text: str,
                 size: float = 11, color: tuple = (0, 0, 0),
                 fill: tuple | None = None, border: tuple | None = None,
                 align: int = 0) -> dict:
-    """Editable free-text annotation, as opposed to text baked into the page."""
+    """Editable free-text annotation, as opposed to text baked into the page.
+
+    `border` is accepted but only applied when a fill is given: PyMuPDF refuses
+    a border colour on a plain (non rich-text) free-text annotation.
+    """
     page = doc[page_no]
-    annot = page.add_freetext_annot(fitz.Rect(rect), text, fontsize=size,
-                                    text_color=color, fill_color=fill,
-                                    border_color=border, align=align)
+    kwargs = {"fontsize": size, "text_color": color, "align": align}
+    if fill is not None:
+        kwargs["fill_color"] = fill
+        if border is not None:
+            kwargs["border_color"] = border
+    annot = page.add_freetext_annot(fitz.Rect(rect), text, **kwargs)
     annot.update()
-    return {"id": annot.xref, "type": "freetext"}
+    return {"id": annot.xref, "type": "text box"}
 
 
 def add_shape(doc: fitz.Document, page_no: int, kind: str, points: list[list[float]],
@@ -165,7 +180,8 @@ def listing(doc: fitz.Document, page_no: int) -> list[dict]:
         colors = annot.colors or {}
         out.append({
             "id": annot.xref,
-            "type": TYPE_NAMES.get(annot.type[0], annot.type[1]),
+            "type": type_name(annot),
+            "is_signature": info.get("content") == "Signature",
             "rect": [rect.x0, rect.y0, rect.x1, rect.y1],
             "content": info.get("content", ""),
             "author": info.get("title", ""),

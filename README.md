@@ -106,10 +106,17 @@ Annotations can be flattened so they become permanent.
 
 **Signatures** — save a signature image per person (the white paper background
 is removed automatically and the image is cropped to the ink), then drag a box
-to place one. Signatures are drawn into the page content stream, not added as
-annotations, so once saved they cannot be selected, moved or deleted.
-Deliberately not cryptographic signing — this is the "paste my signature"
+to place one. A placed signature stays selectable: drag to move it, use the
+handles to resize it, or delete it. It becomes part of the page — and stops
+being selectable — when you flatten it, via **Protect ▸ Flatten annotations**.
+Deliberately not cryptographic signing; this is the "paste my signature"
 workflow.
+
+**Objects you can come back to** — text boxes and signatures are annotations
+until you flatten them, so they can be moved, resized, retyped and removed.
+Clicking one shows a frame with eight handles; double-clicking a text box
+edits its words. Flattening draws them into the page permanently, and leaves
+the page looking pixel-for-pixel the same.
 
 **Forms** — fill existing fields, create text/checkbox/dropdown fields, export
 and re-import values as CSV, flatten filled fields into the page.

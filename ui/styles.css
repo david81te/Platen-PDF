@@ -304,3 +304,19 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
 .cmt .body.empty { color: var(--muted); font-style: italic; }
 .cmt .acts { display: flex; gap: 5px; }
 .cmt .acts button { padding: 2px 8px; font-size: 11px; }
+
+/* ---- selection frame: move and resize an annotation ---- */
+.selframe { position: absolute; outline: 1.5px solid var(--accent); cursor: move; }
+.selframe.moving { background: #4c8dff1a; }
+.handle {
+  position: absolute; width: 9px; height: 9px; border-radius: 2px;
+  background: #fff; border: 1.5px solid var(--accent);
+}
+.handle[data-h="nw"] { left: -5px; top: -5px; cursor: nwse-resize; }
+.handle[data-h="n"]  { left: 50%; margin-left: -5px; top: -5px; cursor: ns-resize; }
+.handle[data-h="ne"] { right: -5px; top: -5px; cursor: nesw-resize; }
+.handle[data-h="e"]  { right: -5px; top: 50%; margin-top: -5px; cursor: ew-resize; }
+.handle[data-h="se"] { right: -5px; bottom: -5px; cursor: nwse-resize; }
+.handle[data-h="s"]  { left: 50%; margin-left: -5px; bottom: -5px; cursor: ns-resize; }
+.handle[data-h="sw"] { left: -5px; bottom: -5px; cursor: nesw-resize; }
+.handle[data-h="w"]  { left: -5px; top: 50%; margin-top: -5px; cursor: ew-resize; }

@@ -58,6 +58,34 @@ def drive(window):
     check("deleting clears the sidebar", js("document.querySelectorAll('.cmt').length"), 0)
     check("and clears it from the page", js("document.querySelectorAll('.annothit').length"), 0)
     check("bubble is gone too", js("!!document.querySelector('.bubble')"), False)
+
+    # --- a text box stays selectable, movable and retypeable ---
+    js("window.pywebview.api.annot_textbox(0,[80,300,280,340],'First wording',"
+       "11,[0,0,0],null,null,0)")
+    time.sleep(1.5)
+    js("setTool('select')")
+    for _ in range(40):
+        if js("document.querySelectorAll('.annothit').length"): break
+        time.sleep(0.25)
+    js("document.querySelector('.annothit').click()")
+    time.sleep(1.5)
+    check("selecting shows a resize frame", js("!!document.querySelector('.selframe')"), True)
+    check("frame has eight handles", js("document.querySelectorAll('.selframe .handle').length"), 8)
+
+    js("window.pywebview.api.annot_update(0,S.annots[0].id,[80,300,400,380],'Second wording')"
+       ".then(()=>refresh(false))")
+    time.sleep(2.2)
+    check("text box was retyped and resized",
+          js("(S.annots[0]||{}).content"), "Second wording")
+    check("new size is reflected",
+          js("S.annots[0] && Math.round(S.annots[0].rect[2])"), 400)
+
+    js("window.pywebview.api.annot_flatten(false).then(()=>refresh(false))")
+    time.sleep(2.5)
+    check("flattening removes the handles",
+          js("document.querySelectorAll('.selframe').length"), 0)
+    check("and nothing is left selectable",
+          js("document.querySelectorAll('.annothit').length"), 0)
     window.destroy()
 
 api = Api()

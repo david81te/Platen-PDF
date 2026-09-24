@@ -258,7 +258,11 @@ async function buildOverlay() {
     });
     if (S.selectedAnnot) {
       const chosen = S.annots.find((a) => a.id === S.selectedAnnot);
-      if (chosen) showBubble(chosen);
+      if (chosen) {
+        drawSelection(chosen);
+        // Only things that carry words are worth popping open.
+        if (chosen.content && !chosen.is_signature) showBubble(chosen);
+      }
     }
   } else {
     S.annots = [];
@@ -283,6 +287,77 @@ async function buildOverlay() {
       height: toPx(r.rect[3] - r.rect[1]) + 'px',
     });
     ov.appendChild(mark);
+  });
+}
+
+/* ---- moving and resizing an annotation ---- */
+
+const HANDLES = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
+
+function drawSelection(a) {
+  const frame = el('div', 'selframe');
+  const place = (r) => Object.assign(frame.style, {
+    left: toPx(r[0]) + 'px', top: toPx(r[1]) + 'px',
+    width: Math.max(6, toPx(r[2] - r[0])) + 'px',
+    height: Math.max(6, toPx(r[3] - r[1])) + 'px',
+  });
+  place(a.rect);
+  HANDLES.forEach((h) => {
+    const grip = el('div', 'handle');
+    grip.dataset.h = h;
+    frame.appendChild(grip);
+  });
+  frame.title = a.is_signature ? 'Drag to move, corners to resize'
+                               : 'Drag to move, corners to resize, double-click to edit';
+  $('overlay').appendChild(frame);
+
+  let drag = null;
+  frame.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    frame.setPointerCapture(e.pointerId);
+    drag = {
+      handle: e.target.dataset.h || null,
+      x: e.clientX, y: e.clientY,
+      rect: a.rect.slice(),
+    };
+    if (!drag.handle) frame.classList.add('moving');
+  });
+
+  frame.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const dx = toPt(e.clientX - drag.x);
+    const dy = toPt(e.clientY - drag.y);
+    const r = drag.rect.slice();
+    if (!drag.handle) {
+      r[0] += dx; r[2] += dx; r[1] += dy; r[3] += dy;
+    } else {
+      if (drag.handle.includes('w')) r[0] += dx;
+      if (drag.handle.includes('e')) r[2] += dx;
+      if (drag.handle.includes('n')) r[1] += dy;
+      if (drag.handle.includes('s')) r[3] += dy;
+    }
+    if (r[2] - r[0] < 8 || r[3] - r[1] < 8) return;   // keep it grabbable
+    drag.live = r;
+    place(r);
+  });
+
+  const finish = async (e) => {
+    if (!drag) return;
+    const moved = drag.live;
+    drag = null;
+    frame.classList.remove('moving');
+    if (!moved) return;
+    await run('annot_update', S.page, a.id, moved);
+    await refresh(false);
+    await loadComments();
+  };
+  frame.addEventListener('pointerup', finish);
+  frame.addEventListener('pointercancel', finish);
+
+  frame.addEventListener('dblclick', (e) => {
+    e.stopPropagation();
+    if (!a.is_signature) editAnnot(a);
   });
 }
 
@@ -495,9 +570,17 @@ async function applyTool(rect) {
     }
     case 'stamp':
       await run('annot_stamp', S.page, rect, S.stamp); break;
-    case 'sign':
+    case 'sign': {
       if (!S.sig) { toast('Pick a signature in the Signatures panel first.', 'err'); return; }
-      await run('sig_place', S.page, S.sig, rect); break;
+      const placed = await run('sig_place', S.page, S.sig, rect);
+      await refresh(false);
+      if (placed && placed.id) {
+        setTool('select');
+        await selectAnnot(placed.id);
+        toast('Drag to reposition, handles to resize. Lock it with Protect ▸ Flatten.');
+      }
+      return;
+    }
     case 'redact':
       await run('redact_mark', S.page, [rect]);
       S.redactions.push({ page: S.page, rect });
@@ -539,18 +622,30 @@ async function addNote(p) {
 }
 
 function promptAddText(rect) {
-  modal('Add text', '<div class="field"><label>Text</label><textarea name="text" rows="4"></textarea></div>' +
+  modal('Add a text box',
+    '<div class="field"><label>Text</label><textarea name="text" rows="4"></textarea></div>' +
     '<div class="row"><div class="field"><label>Size</label><input name="size" type="number" value="11"></div>' +
-    '<div class="field"><label>Align</label><select name="align"><option>left</option><option>center</option>' +
-    '<option>right</option><option>justify</option></select></div></div>' +
-    '<div class="row"><div class="field"><label><input type="checkbox" name="bold" style="width:auto"> Bold</label></div>' +
-    '<div class="field"><label><input type="checkbox" name="italic" style="width:auto"> Italic</label></div></div>',
+    '<div class="field"><label>Align</label><select name="align">' +
+    '<option value="0">left</option><option value="1">centre</option>' +
+    '<option value="2">right</option></select></div></div>' +
+    '<div class="field"><label><input type="checkbox" name="permanent" style="width:auto"> ' +
+    'Draw straight into the page (cannot be moved afterwards)</label></div>' +
+    '<p class="hint">Otherwise the box stays selectable: drag to move, use the ' +
+    'handles to resize, double-click to change the words.</p>',
     async (v) => {
       if (!v.text.trim()) return;
-      await busyRun('Adding text…', 'add_text', S.page, rect, v.text, 'Calibri',
-        parseFloat(v.size) || 11, [0, 0, 0], v.align, v.bold, v.italic);
+      if (v.permanent) {
+        await busyRun('Adding text…', 'add_text', S.page, rect, v.text, 'Calibri',
+          parseFloat(v.size) || 11, [0, 0, 0], 'left', false, false);
+        await refresh(false);
+        return;
+      }
+      const made = await run('annot_textbox', S.page, rect, v.text,
+        parseFloat(v.size) || 11, [0, 0, 0], null, null,
+        parseInt(v.align, 10) || 0);
       await refresh(false);
-    }, 'Add text');
+      if (made && made.id) { setTool('select'); await selectAnnot(made.id); }
+    }, 'Add');
 }
 
 function promptLink(rect) {

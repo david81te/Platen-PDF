@@ -212,12 +212,107 @@ def sig_on_rotated():
     sig_ids.append(entry["id"])
     doc = fitz.open(HARD)
     signatures.place(doc, 1, entry["id"], [100, 100, 300, 170])   # rotated page
-    return "annots=%d images=%d" % (len(annots.listing(doc, 1)),
-                                    len(doc[1].get_images()))
+    editable = "annots=%d" % len(annots.listing(doc, 1))
+
+    straight = fitz.open(HARD)
+    signatures.place(straight, 1, entry["id"], [100, 100, 300, 170], flatten=True)
+    locked = "annots=%d images=%d" % (len(annots.listing(straight, 1)),
+                                      len(straight[1].get_images()))
+    return "editable[%s] locked[%s]" % (editable, locked)
 
 
-check("signature on a rotated page is flattened", sig_on_rotated,
-      lambda r: r.startswith("annots=0") and "images=1" in r)
+check("signature on a rotated page: editable, and lockable on request",
+      sig_on_rotated,
+      lambda r: "editable[annots=1]" in r and "locked[annots=0 images=1]" in r)
+
+print("")
+print("== objects stay editable until flattened ==")
+
+
+def signature_is_adjustable():
+    """A placed signature must be movable and resizable, then lockable."""
+    from PIL import Image, ImageDraw
+    path = os.path.join(OUT, "adj_sig.png")
+    image = Image.new("RGB", (400, 140), "white")
+    ImageDraw.Draw(image).line([(20, 110), (370, 40)], fill=(12, 20, 90), width=10)
+    image.save(path)
+    entry = signatures.add(path, "Adjustable")
+    sig_ids.append(entry["id"])
+
+    doc = fitz.open(HARD)
+    placed = signatures.place(doc, 0, entry["id"], [120, 400, 340, 470])
+    listed = annots.listing(doc, 0)
+    if len(listed) != 1 or not listed[0]["is_signature"]:
+        return "not placed as an editable signature"
+    annots.update(doc, 0, placed["id"], rect=[90, 360, 430, 500])
+    moved = [round(v) for v in annots.listing(doc, 0)[0]["rect"]]
+    annots.flatten(doc)
+    after = fitz.open(stream=doc.tobytes(), filetype="pdf")
+    return "moved=%s locked=%s drawn=%s" % (
+        moved == [90, 360, 430, 500],
+        len(annots.listing(after, 0)) == 0,
+        len(after[0].get_images()) >= 1)
+
+
+check("signature can be moved, resized, then locked", signature_is_adjustable,
+      lambda r: r == "moved=True locked=True drawn=True")
+
+
+def signature_can_be_removed():
+    doc = fitz.open(HARD)
+    placed = signatures.place(doc, 0, sig_ids[-1], [120, 400, 340, 470])
+    annots.delete(doc, 0, placed["id"])
+    return len(annots.listing(doc, 0))
+
+
+check("a signature can be deleted before locking", signature_can_be_removed,
+      lambda n: n == 0)
+
+
+def signature_keeps_transparency():
+    """A stamped signature must not paint a white box over the page."""
+    doc = fitz.open(HARD)
+    placed = signatures.place(doc, 0, sig_ids[-1], [120, 400, 340, 470])
+    page = doc[0]
+    annot = [a for a in page.annots() if a.xref == placed["id"]][0]
+    pix = annot.get_pixmap(alpha=True)
+    corner = pix.pixel(1, 1)
+    return "corner_alpha=%s" % (corner[-1] if len(corner) > 3 else "opaque")
+
+
+check("signature keeps its transparent background", signature_keeps_transparency,
+      lambda r: r.endswith("=0") or "opaque" not in r)
+
+
+def textbox_is_editable():
+    doc = fitz.open(HARD)
+    made = annots.add_textbox(doc, 0, [80, 300, 280, 340], "First wording")
+    annots.update(doc, 0, made["id"], rect=[80, 300, 400, 380], content="Second wording")
+    found = [a for a in annots.listing(doc, 0) if a["type"] == "text box"][0]
+    annots.flatten(doc)
+    return "text=%r rect=%s locked=%s" % (
+        found["content"], [round(v) for v in found["rect"]],
+        len(annots.listing(fitz.open(stream=doc.tobytes(), filetype="pdf"), 0)) == 0)
+
+
+check("text box can be retyped, resized, then locked", textbox_is_editable,
+      lambda r: "Second wording" in r and "[80, 300, 400, 380]" in r and "locked=True" in r)
+
+
+def flatten_keeps_appearance():
+    """Flattening must not change what the page looks like."""
+    doc = fitz.open(HARD)
+    signatures.place(doc, 0, sig_ids[-1], [120, 400, 340, 470])
+    before = doc[0].get_pixmap(matrix=fitz.Matrix(1.2, 1.2)).samples
+    annots.flatten(doc)
+    after = fitz.open(stream=doc.tobytes(), filetype="pdf")[0].get_pixmap(
+        matrix=fitz.Matrix(1.2, 1.2)).samples
+    same = sum(1 for a, b in zip(before, after) if a != b) / max(1, len(before))
+    return "pixels_changed=%.3f%%" % (same * 100)
+
+
+check("flattening leaves the page looking the same", flatten_keeps_appearance,
+      lambda r: float(r.split("=")[1].rstrip("%")) < 1.0)
 
 print("\n== ocr behaviour ==")
 

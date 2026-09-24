@@ -171,23 +171,86 @@ def _path_for(identifier: str) -> str:
     raise PdfError("Signature not found.")
 
 
+def _image_xref(doc: fitz.Document, path: str) -> tuple[int, int, int]:
+    """Add an image XObject to the file without drawing it on any page.
+
+    Returns (xref, width, height). Transparency is carried in a separate
+    /SMask image, which is how PDF represents an alpha channel -- without it a
+    signature would stamp an opaque white rectangle over the document.
+    """
+    with Image.open(path) as opened:
+        image = opened.convert("RGBA")
+    width, height = image.size
+    rgb = image.convert("RGB").tobytes()
+    alpha = image.getchannel("A").tobytes()
+
+    smask = doc.get_new_xref()
+    doc.update_object(smask, "<</Type/XObject/Subtype/Image/Width %d/Height %d"
+                             "/ColorSpace/DeviceGray/BitsPerComponent 8>>"
+                             % (width, height))
+    doc.update_stream(smask, alpha, compress=True)
+
+    xref = doc.get_new_xref()
+    doc.update_object(xref, "<</Type/XObject/Subtype/Image/Width %d/Height %d"
+                            "/ColorSpace/DeviceRGB/BitsPerComponent 8/SMask %d 0 R>>"
+                            % (width, height, smask))
+    doc.update_stream(xref, rgb, compress=True)
+    return xref, width, height
+
+
 def place(doc: fitz.Document, page_no: int, identifier: str, rect: list[float],
-          keep_ratio: bool = True) -> dict:
-    """Stamp a stored signature permanently into the page content stream."""
+          keep_ratio: bool = True, flatten: bool = False) -> dict:
+    """Put a stored signature on the page.
+
+    By default this is a stamp annotation carrying the signature image, so it
+    can still be moved, resized or removed. Flattening it -- on its own, or
+    with every other annotation -- draws it into the page content, after which
+    it is part of the page and cannot be selected again.
+    """
     path = _path_for(identifier)
     page = doc[page_no]
     box = fitz.Rect(rect)
     if box.is_empty or box.width < 4 or box.height < 4:
         raise PdfError("Signature area is too small.")
-    page.insert_image(box, filename=path, keep_proportion=keep_ratio, overlay=True)
-    return {"ok": True, "rect": [box.x0, box.y0, box.x1, box.y1]}
+
+    if flatten:
+        page.insert_image(box, filename=path, keep_proportion=keep_ratio, overlay=True)
+        return {"ok": True, "flattened": True,
+                "rect": [box.x0, box.y0, box.x1, box.y1]}
+
+    xref, width, height = _image_xref(doc, path)
+    if keep_ratio and width and height:
+        scale = min(box.width / width, box.height / height)
+        box = fitz.Rect(box.x0, box.y0, box.x0 + width * scale, box.y0 + height * scale)
+
+    annot = page.add_stamp_annot(box, stamp=0)
+    name = next((i["name"] for i in _load() if i["id"] == identifier), "Signature")
+    annot.set_info(title=name, content="Signature")
+    annot.update()
+
+    # Swap the built-in stamp artwork for the signature image.
+    kind, value = doc.xref_get_key(annot.xref, "AP/N")
+    if kind != "xref":
+        raise PdfError("Could not build the signature appearance.")
+    appearance = int(value.split()[0])
+    doc.update_stream(appearance,
+                      ("q %d 0 0 %d 0 0 cm /SigIm Do Q" % (width, height)).encode())
+    doc.xref_set_key(appearance, "Resources/XObject/SigIm", "%d 0 R" % xref)
+    doc.xref_set_key(appearance, "BBox", "[0 0 %d %d]" % (width, height))
+
+    # add_stamp_annot re-fits the rect to the built-in artwork it started from,
+    # so restore the caller's box now that our own appearance is in place.
+    annot.set_rect(box)
+
+    return {"ok": True, "flattened": False, "id": annot.xref,
+            "rect": [box.x0, box.y0, box.x1, box.y1]}
 
 
 def place_dated(doc: fitz.Document, page_no: int, identifier: str, rect: list[float],
                 date_text: str = "", date_rect: list[float] | None = None,
-                size: float = 10) -> dict:
+                size: float = 10, flatten: bool = False) -> dict:
     """Place a signature and, optionally, a typed date beside it."""
-    result = place(doc, page_no, identifier, rect)
+    result = place(doc, page_no, identifier, rect, flatten=flatten)
     if date_text:
         from . import textedit
         target = date_rect or [rect[2] + 8, rect[1], rect[2] + 160, rect[3]]
