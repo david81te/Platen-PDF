@@ -250,6 +250,10 @@ bridge.
 ## Notes for future work
 
 - **A failed PyInstaller run leaves the previous `dist/` in place.** It is
+  easy to keep testing a stale executable and conclude a fix did not work.
+  `build.ps1` now checks the exit code and stops loudly; if a change seems
+  absent from the app, check the timestamp on the exe first.
+- **A failed PyInstaller run leaves the previous `dist/` in place.** It is
   easy to keep testing a stale executable and conclude a fix did not work,
   so `build.ps1` reports a failed build loudly and stops. Check the
   timestamp on the exe if something you just changed seems absent.
