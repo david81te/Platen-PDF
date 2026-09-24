@@ -1,11 +1,13 @@
 """PDF Studio - a standalone PDF editor."""
 from __future__ import annotations
 
+import json
 import os
 import sys
 
 import webview
 
+from backend import shell_integration, single_instance
 from backend.api import Api
 
 APP_NAME = "PDF Studio"
@@ -55,6 +57,30 @@ def main() -> None:
     if "--selftest" in sys.argv:
         raise SystemExit(selftest())
 
+    if "--register" in sys.argv:
+        try:
+            state = shell_integration.register()
+        except RuntimeError as exc:
+            print(exc)
+            raise SystemExit(1)
+        print("Registered. Windows still needs you to confirm the choice:")
+        print("  Settings > Apps > Default apps > PDF Studio")
+        print("  current .pdf handler:", state["current_handler"])
+        shell_integration.open_default_apps_settings()
+        raise SystemExit(0)
+
+    if "--unregister" in sys.argv:
+        shell_integration.unregister()
+        print("Removed PDF Studio from the Windows file associations.")
+        raise SystemExit(0)
+
+    startup = [a for a in sys.argv[1:] if os.path.isfile(a)]
+
+    # Hand the file to a copy that is already running rather than starting a
+    # second one; this is what keeps Explorer from spawning a process per file.
+    if startup and single_instance.deliver(startup[0]):
+        raise SystemExit(0)
+
     api = Api()
     index = os.path.join(_base_dir(), "ui", "index.html")
     window = webview.create_window(
@@ -68,10 +94,17 @@ def main() -> None:
     )
     api.attach_window(window)
 
-    startup = [a for a in sys.argv[1:] if os.path.isfile(a)]
     if startup:
         api._startup_path = os.path.abspath(startup[0])
 
+    def handle_incoming(path: str) -> None:
+        """A later launch asked us to open a file: show it in a new tab."""
+        try:
+            window.evaluate_js("window.openOnStart(%s)" % json.dumps(path))
+        except Exception:
+            pass
+
+    single_instance.serve(handle_incoming)
     webview.start(debug=bool(os.environ.get("PDFSTUDIO_DEBUG")))
 
 

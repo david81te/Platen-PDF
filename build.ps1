@@ -1,11 +1,31 @@
-# Builds dist\PDFStudio.exe -- a single self-contained Windows executable.
+# Builds PDF Studio.
+#
+#   .uild.ps1            fast folder build  -> dist\PDFStudio\PDFStudio.exe
+#   .uild.ps1 -Portable  single file        -> dist\PDFStudio.exe
+#
+# The folder build starts in about a second and is the one to use when PDF
+# Studio is your default PDF application; the single file is easier to copy
+# around but unpacks itself on every launch.
+param([switch]$Portable)
+
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
-Write-Host "Building PDF Studio..." -ForegroundColor Cyan
-& ".venv\Scripts\pyinstaller.exe" --noconfirm --clean PDFStudio.spec
-if (Test-Path "dist\PDFStudio.exe") {
-    $mb = [math]::Round((Get-Item "dist\PDFStudio.exe").Length / 1MB, 1)
-    Write-Host "Built dist\PDFStudio.exe ($mb MB)" -ForegroundColor Green
+
+if ($Portable) {
+    Write-Host "Building the single-file build..." -ForegroundColor Cyan
+    & ".venv\Scripts\pyinstaller.exe" --noconfirm --clean PDFStudio.spec
+    $out = "dist\PDFStudio.exe"
 } else {
-    Write-Host "Build failed." -ForegroundColor Red; exit 1
+    Write-Host "Building the folder build..." -ForegroundColor Cyan
+    & ".venv\Scripts\pyinstaller.exe" --noconfirm --clean PDFStudio-folder.spec
+    $out = "dist\PDFStudio\PDFStudio.exe"
+}
+
+if (Test-Path $out) {
+    $mb = [math]::Round((Get-Item $out).Length / 1MB, 1)
+    Write-Host "Built $out ($mb MB)" -ForegroundColor Green
+    & $out --selftest
+} else {
+    Write-Host "Build failed." -ForegroundColor Red
+    exit 1
 }

@@ -737,6 +737,40 @@ const ACTIONS = {
   find: () => openFind(),
   replace: () => promptReplace(),
   props: () => promptProps(),
+  defaultapp: async () => {
+    const st = await run('default_app_status');
+    if (!st) return;
+    if (!st.packaged) {
+      modal('Not available in the development build',
+        '<p class="hint">Registering would point Windows at python.exe. ' +
+        'Run the built <b>PDFStudio.exe</b> and try again.</p>', null);
+      return;
+    }
+    if (st.is_default) {
+      modal('Already the default',
+        '<p class="hint">PDF Studio already opens .pdf files on this account.</p>' +
+        '<div class="field"><label>Remove the association?</label></div>',
+        async () => {
+          await run('unregister_file_types');
+          toast('Removed. Windows will fall back to another PDF app.', 'ok');
+        }, 'Remove');
+      return;
+    }
+    modal('Set as default PDF app',
+      '<p class="hint">Windows does not let an application make itself the ' +
+      'default — that choice is yours to confirm. PDF Studio will be added to ' +
+      'the list of PDF apps, then the Windows <b>Default apps</b> screen opens ' +
+      'so you can pick it.</p>' +
+      '<p class="hint">Currently opening PDFs: <b>' +
+      escapeHtml(st.current_handler || 'not set') + '</b></p>' +
+      '<p class="hint">This affects your Windows account only and needs no ' +
+      'administrator rights.</p>',
+      async () => {
+        const r = await busyRun('Registering…', 'register_file_types');
+        if (!r) return;
+        toast('Added. Choose PDF Studio under Default apps to finish.', 'ok');
+      }, 'Register and open Settings');
+  },
 
   rotateL: async () => { await run('page_rotate', [S.page], -90); await refresh(); },
   rotateR: async () => { await run('page_rotate', [S.page], 90); await refresh(); },
@@ -1073,7 +1107,7 @@ document.querySelectorAll('.menu').forEach((m) => {
       m.classList.remove('open');
       const fn = ACTIONS[li.dataset.act];
       if (!fn) return;
-      if (!S.info && !['open', 'create'].includes(li.dataset.act)) {
+      if (!S.info && !['open', 'create', 'defaultapp'].includes(li.dataset.act)) {
         toast('Open a document first.', 'err');
         return;
       }

@@ -11,7 +11,8 @@ import traceback
 
 import pymupdf as fitz
 
-from . import annots, convert, decorate, forms, pages, security, signatures, textedit
+from . import (annots, convert, decorate, forms, pages, security,
+               shell_integration, signatures, textedit)
 from .session import NoDocument, PdfError, Session
 
 PDF_TYPES = ("PDF files (*.pdf)",)
@@ -128,6 +129,20 @@ class Api:
     @endpoint
     def ping(self):
         return {"ready": True, "ocr": convert.ocr_status()}
+
+    @endpoint
+    def default_app_status(self):
+        return shell_integration.status()
+
+    @endpoint
+    def register_file_types(self):
+        state = shell_integration.register()
+        state["settings_opened"] = shell_integration.open_default_apps_settings()
+        return state
+
+    @endpoint
+    def unregister_file_types(self):
+        return shell_integration.unregister()
 
     @endpoint
     def pending_open(self):

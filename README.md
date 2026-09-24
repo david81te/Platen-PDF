@@ -11,11 +11,44 @@ text editing is most reliable.
 ```powershell
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
-.\build.ps1
+.\build.ps1              # folder build  -> dist\PDFStudio\PDFStudio.exe
+.\build.ps1 -Portable    # single file   -> dist\PDFStudio.exe
 ```
 
-Produces `dist\PDFStudio.exe` (~139 MB, self-contained). Run it directly, or
-pass a file: `PDFStudio.exe contract.pdf`. To run from source: `python app.py`.
+Two flavours, same app:
+
+| | Folder build | Single file |
+| --- | --- | --- |
+| Starts in | ~1s | ~12s |
+| Opens a file in a running window | ~0.6s | ~4s |
+| Size | 336 MB folder | 139 MB, one file |
+| Best for | Everyday use, and as the default PDF app | Copying to another PC |
+
+The single file unpacks itself to a temp folder on every launch, which is what
+makes it slow to start. Use the folder build unless you need portability.
+
+Run either directly, or pass a file: `PDFStudio.exe contract.pdf`. To run from
+source: `python app.py`.
+
+## Opening PDFs from Explorer
+
+```powershell
+.\dist\PDFStudio\PDFStudio.exe --register      # add to the Windows PDF apps
+.\dist\PDFStudio\PDFStudio.exe --unregister    # remove again
+```
+
+Or use **File > Set as default PDF app...** in the app.
+
+This registers under `HKEY_CURRENT_USER`, so it needs no administrator rights
+and affects only your account. It does **not** change your current default:
+since Windows 8 an application cannot make itself the default handler -- the
+choice lives in a `UserChoice` key that Windows protects with a hash it
+verifies. Registering adds PDF Studio to *Open with* and to *Settings > Apps >
+Default apps*, and the registration opens that screen so you can confirm.
+
+Opening several PDFs from Explorer does not start several copies: the first
+instance listens on a per-user named pipe, and later launches hand their file
+over and exit, so each document arrives as a new tab.
 
 ## Features
 
@@ -130,6 +163,7 @@ shrunk to an illegible size.
 .venv\Scripts\python tests\make_hard.py     # awkward multi-page fixture
 .venv\Scripts\python tests\test_edge.py     # edge cases and error paths
 .venv\Scripts\python tests\test_flows.py    # multi-step workflows
+.venv\Scripts\python tests\test_shell.py    # file association + single instance
 ```
 
 `make_fixture.py` needs Word; the rest run against the PDF it produces.
