@@ -106,8 +106,24 @@ function modal(title, bodyHtml, onOk, okLabel = 'OK', wide = false) {
 
 /* ---------- document ---------- */
 
+function askPassword(info) {
+  modal('Password required',
+    '<p class="hint">' + escapeHtml(info.name || 'This document') +
+    ' is protected.' + (info.wrong_password ? ' That password was not accepted.' : '') +
+    '</p><div class="field"><label>Password</label>' +
+    '<input name="pw" type="password" autocomplete="off"></div>',
+    async (v) => {
+      const next = await busyRun('Opening…', 'open_path', info.path, v.pw);
+      if (!next) return;
+      if (next.needs_password) { askPassword(next); return; }
+      setInfo(next);
+      await refresh();
+    }, 'Open');
+}
+
 function setInfo(info) {
   if (!info || info.cancelled) return;
+  if (info.needs_password) { askPassword(info); return; }
   if (info.open === false) {
     S.info = null;
     $('stage').classList.remove('on');
@@ -734,17 +750,24 @@ const ACTIONS = {
     '<div class="field"><label>Format</label><select name="fmt"><option>png</option><option>jpg</option></select></div></div>',
     async (v) => { const r = await busyRun('Rendering…', 'export_images', parseInt(v.dpi, 10) || 200, v.fmt); if (r && r.count) toast('Wrote ' + r.count + ' images.', 'ok'); }, 'Export'),
   text: async () => { const r = await busyRun('Extracting…', 'export_text'); if (r && r.path) toast('Saved ' + baseName(r.path), 'ok'); },
-  ocr: async () => {
-    const st = await run('ocr_status');
-    if (st && !st.available) {
-      modal('Text recognition unavailable',
-        '<p class="hint">OCR needs the Tesseract engine, which is not installed on this machine.' +
-        ' Install it from <b>github.com/UB-Mannheim/tesseract/wiki</b>, then reopen PDF Studio.</p>', null);
-      return;
-    }
-    const r = await busyRun('Recognising text…', 'ocr_run', 'eng', 300);
-    if (r) { toast('OCR added text to ' + r.pages + ' pages.', 'ok'); await refresh(); }
-  },
+  ocr: () => modal('Recognise text (OCR)',
+    '<p class="hint">Reads text from scanned pages and adds an invisible text ' +
+    'layer, so the page looks identical but becomes searchable and selectable. ' +
+    'The engine is built in — nothing to install.</p>' +
+    '<div class="field"><label>Quality</label><select name="dpi">' +
+    '<option value="160">Fast (160 DPI)</option>' +
+    '<option value="220" selected>Balanced (220 DPI)</option>' +
+    '<option value="300">Best (300 DPI)</option></select></div>' +
+    '<div class="field"><label><input type="checkbox" name="force" style="width:auto"> ' +
+    'Re-recognise pages that already have text</label></div>',
+    async (v) => {
+      const r = await busyRun('Recognising text…', 'ocr_run', 'eng',
+        parseInt(v.dpi, 10) || 220, v.force);
+      if (!r) return;
+      toast('Read ' + r.blocks + ' text blocks across ' + r.pages + ' page(s)' +
+        (r.skipped ? ', skipped ' + r.skipped + ' that already had text' : '') + '.', 'ok');
+      await refresh();
+    }, 'Recognise'),
   compress: () => modal('Compress',
     '<div class="field"><label>Level</label><select name="level"><option value="low">Light</option>' +
     '<option value="medium" selected>Balanced</option><option value="high">Strong</option></select></div>',
@@ -1031,7 +1054,7 @@ ready().then(async () => {
   loadSigs();
   const s = await run('ping');
   if (s && s.ocr && !s.ocr.available) {
-    console.log('Tesseract OCR not detected; the OCR command will explain how to install it.');
+    console.warn('OCR engine missing from this build.');
   }
   const pending = await run('pending_open');
   if (pending && pending.path) await window.openOnStart(pending.path);

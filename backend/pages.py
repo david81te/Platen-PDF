@@ -51,6 +51,12 @@ def insert_blank(doc: fitz.Document, at: int, paper: str = "letter",
 
 
 def move(doc: fitz.Document, source: int, target: int) -> dict:
+    """Move a page so it sits *before* what is currently at `target`.
+
+    Because the page is removed before being reinserted, moving forwards lands
+    it one index earlier than `target`: move(0, 3) on a 7-page document leaves
+    that page at index 2. Use reorder() when you want exact final positions.
+    """
     if source < 0 or source >= doc.page_count:
         raise PdfError("Page is out of range.")
     target = max(0, min(int(target), doc.page_count))

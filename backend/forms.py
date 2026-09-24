@@ -25,6 +25,20 @@ NEW_KINDS = {
 }
 
 
+TRUTHY = {"yes", "true", "on", "1", "checked", "y", "x"}
+
+
+def _as_bool(value) -> bool:
+    """Coerce a checkbox value.
+
+    CSV round trips hand back strings, and bool("Off") is True -- which would
+    tick every box on import.
+    """
+    if isinstance(value, str):
+        return value.strip().lower() in TRUTHY
+    return bool(value)
+
+
 def _describe(widget, page_no: int) -> dict:
     rect = widget.rect
     return {
@@ -66,7 +80,7 @@ def set_value(doc: fitz.Document, page_no: int, name: str, value) -> dict:
     page = doc[page_no]
     widget = _find(page, name)
     if widget.field_type == fitz.PDF_WIDGET_TYPE_CHECKBOX:
-        widget.field_value = bool(value)
+        widget.field_value = _as_bool(value)
     elif widget.field_type in (fitz.PDF_WIDGET_TYPE_COMBOBOX,
                                fitz.PDF_WIDGET_TYPE_LISTBOX):
         options = list(widget.choice_values or [])
@@ -107,7 +121,7 @@ def add_field(doc: fitz.Document, page_no: int, kind: str, rect: list[float],
         widget.choice_values = list(options or [])
         widget.field_value = value or (options[0] if options else "")
     elif kind == "checkbox":
-        widget.field_value = bool(value)
+        widget.field_value = _as_bool(value)
     else:
         widget.field_value = value or ""
     if required:

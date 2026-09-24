@@ -22,6 +22,7 @@ class Session:
         self.doc: fitz.Document | None = None
         self.path: str | None = None
         self.dirty = False
+        self.encrypted = False
         self.open_password: str | None = None
         self._undo: list[bytes] = []
         self._redo: list[bytes] = []
@@ -35,11 +36,16 @@ class Session:
 
     def open(self, path: str, password: str | None = None) -> dict:
         doc = fitz.open(path)
-        if doc.needs_pass:
+        # Read needs_pass exactly once, here, before authenticating. Reading it
+        # again afterwards re-locks the document: rendering still works, but
+        # text extraction, search and export silently start failing.
+        encrypted = bool(doc.needs_pass)
+        if encrypted:
             if not password or not doc.authenticate(password):
                 doc.close()
                 raise PdfError("PASSWORD_REQUIRED")
         self.close()
+        self.encrypted = encrypted
         self.doc = doc
         self.path = path
         self.open_password = password
@@ -54,6 +60,7 @@ class Session:
         self.doc = doc
         self.path = None
         self.dirty = True
+        self.encrypted = False
         self._undo.clear()
         self._redo.clear()
         return self.info()
@@ -64,6 +71,7 @@ class Session:
         self.doc = doc
         self.path = path
         self.dirty = dirty
+        self.encrypted = False
         self._undo.clear()
         self._redo.clear()
         return self.info()
@@ -77,6 +85,7 @@ class Session:
         self.doc = None
         self.path = None
         self.dirty = False
+        self.encrypted = False
         self._undo.clear()
         self._redo.clear()
 
@@ -90,7 +99,7 @@ class Session:
             "name": os.path.basename(self.path) if self.path else "Untitled.pdf",
             "page_count": self.doc.page_count,
             "dirty": self.dirty,
-            "encrypted": bool(self.doc.needs_pass) or self.doc.is_encrypted,
+            "encrypted": self.encrypted,
             "title": meta.get("title") or "",
             "author": meta.get("author") or "",
             "subject": meta.get("subject") or "",
@@ -170,16 +179,23 @@ class Session:
         target = path or self.path
         if not target:
             raise PdfError("No destination path.")
+        options = {"garbage": 4, "deflate": True}
+        if self.encrypted:
+            # Without this a password-protected document quietly loses its
+            # protection the first time it is saved.
+            options["encryption"] = fitz.PDF_ENCRYPT_KEEP
         same_file = self.path is not None and os.path.abspath(target) == os.path.abspath(self.path)
         if same_file:
-            # Saving over the open file requires a full rewrite via a temp copy.
-            data = doc.tobytes(garbage=4, deflate=True)
+            # Saving over the open file needs a full rewrite in memory first.
+            data = doc.tobytes(**options)
             doc.close()
             with open(target, "wb") as fh:
                 fh.write(data)
             self.doc = fitz.open(target)
+            if self.encrypted and self.open_password:
+                self.doc.authenticate(self.open_password)
         else:
-            doc.save(target, garbage=4, deflate=True)
+            doc.save(target, **options)
         self.path = target
         self.dirty = False
         return self.info()

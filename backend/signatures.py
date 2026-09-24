@@ -55,28 +55,48 @@ def _decode(source: str) -> bytes:
         return fh.read()
 
 
+MAX_STORED_EDGE = 1600
+
+
 def _clean(raw: bytes, drop_background: bool = True, threshold: int = 238) -> bytes:
     """Trim surrounding whitespace and knock out the paper background.
 
     Signatures are usually scanned or photographed on white paper. Left as-is
     they stamp an opaque white rectangle over the document, so near-white
     pixels become transparent and the image is cropped to the ink.
+
+    The masking is vectorised: a phone photo is around 12 megapixels, and
+    walking those pixels in Python froze the window for seconds.
     """
-    image = Image.open(io.BytesIO(raw)).convert("RGBA")
+    import numpy as np
+
+    image = Image.open(io.BytesIO(raw))
+    image.draft("RGB", (MAX_STORED_EDGE * 2, MAX_STORED_EDGE * 2))  # cheap JPEG downscale
+    image = image.convert("RGBA")
+
     if drop_background:
-        pixels = image.getdata()
-        out = []
-        for r, g, b, a in pixels:
-            if r >= threshold and g >= threshold and b >= threshold:
-                out.append((r, g, b, 0))
-            else:
-                out.append((r, g, b, a))
-        image.putdata(out)
+        pixels = np.array(image)
+        near_white = (
+            (pixels[:, :, 0] >= threshold)
+            & (pixels[:, :, 1] >= threshold)
+            & (pixels[:, :, 2] >= threshold)
+        )
+        pixels[near_white, 3] = 0
+        image = Image.fromarray(pixels, "RGBA")
+
     box = image.getbbox()
     if box:
         image = image.crop(box)
+
+    # A signature does not need to be a full-resolution photograph, and an
+    # oversized one bloats every PDF it is stamped into.
+    if max(image.size) > MAX_STORED_EDGE:
+        ratio = MAX_STORED_EDGE / max(image.size)
+        image = image.resize((max(1, int(image.width * ratio)),
+                              max(1, int(image.height * ratio))), Image.LANCZOS)
+
     buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
+    image.save(buffer, format="PNG", optimize=True)
     return buffer.getvalue()
 
 

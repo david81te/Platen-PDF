@@ -344,9 +344,6 @@ def ocr_status() -> dict:
         return {"available": False, "engine": None, "needs_install": True}
 
 
-# Backwards-compatible alias; earlier builds shelled out to Tesseract.
-tesseract_status = ocr_status
-
 
 def _quad_bounds(box) -> tuple[float, float, float, float]:
     xs = [float(point[0]) for point in box]

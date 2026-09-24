@@ -122,7 +122,16 @@ class Api:
             info = self._session.adopt(built, path=None)
             info["converted_from"] = os.path.basename(path)
             return info
-        return self._session.open(path, password)
+        try:
+            return self._session.open(path, password)
+        except PdfError as exc:
+            if str(exc) != "PASSWORD_REQUIRED":
+                raise
+            # Reported rather than raised so the UI can ask for the password
+            # instead of showing an error the user cannot act on.
+            return {"open": False, "needs_password": True, "path": path,
+                    "name": os.path.basename(path),
+                    "wrong_password": bool(password)}
 
     @endpoint
     def close_doc(self):
@@ -145,11 +154,21 @@ class Api:
     def page_sizes(self):
         return self._session.page_sizes()
 
-    @endpoint
     def save(self):
+        """Save, falling back to Save As when there is no path yet.
+
+        Not wrapped in @endpoint: it returns whatever save_as already built, so
+        a failure there surfaces as its own message rather than a KeyError.
+        """
         if not self._session.path:
-            return self.save_as()["data"]
-        return self._session.save()
+            return self.save_as()
+        try:
+            return {"ok": True, "data": self._session.save()}
+        except (PdfError, NoDocument, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception as exc:
+            traceback.print_exc()
+            return {"ok": False, "error": type(exc).__name__ + ": " + str(exc)}
 
     @endpoint
     def save_as(self):
@@ -462,7 +481,8 @@ class Api:
 
     @endpoint
     def security_info(self):
-        return security.describe(self._session.require())
+        return security.describe(self._session.require(),
+                                 self._session.encrypted)
 
     @endpoint
     def protect(self, user_password="", owner_password="", allowed=None):

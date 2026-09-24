@@ -47,7 +47,7 @@ session = Session()
 check("open", lambda: session.open(SRC)["page_count"])
 check("render", lambda: session.render(0, 1.0)["width"])
 check("thumbnails", lambda: len(session.thumbnails(0, 1, 120)))
-check("search", lambda: len(session.search("purchase")))
+check("search", lambda: len(session.search("purchase")["hits"]))
 check("outline round trip", lambda: (
     session.set_outline([{"level": 1, "title": "Terms", "page": 0}]),
     len(session.outline()))[1])
@@ -260,7 +260,7 @@ check("edit -> Word round trip", docx_roundtrip)
 check("office -> pdf", lambda: convert.from_files([DOCX]).page_count)
 check("images -> pdf", lambda: convert.from_files([sig_png]).page_count)
 check("compress", lambda: convert.compress(fresh(), os.path.join(OUT, "small.pdf"), "high")["size"])
-check("tesseract status", lambda: convert.tesseract_status()["available"])
+check("ocr engine is built in", lambda: convert.ocr_status()["available"],)
 
 print("\n== decoration ==")
 check("watermark text", lambda: decorate.watermark_text(fresh(), "CONFIDENTIAL")["pages"])

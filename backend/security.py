@@ -32,15 +32,17 @@ def permission_flags(allowed: list[str] | None) -> int:
     return value
 
 
-def describe(doc: fitz.Document) -> dict:
+def describe(doc: fitz.Document, encrypted: bool = False) -> dict:
+    """Report permissions.
+
+    `encrypted` is passed in rather than read from the document: probing
+    needs_pass after a successful authenticate re-locks it.
+    """
     granted = []
     for name, flag in PERMISSIONS.items():
         if doc.permissions & flag:
             granted.append(name)
-    return {
-        "encrypted": bool(doc.is_encrypted or doc.needs_pass),
-        "allowed": granted,
-    }
+    return {"encrypted": bool(encrypted), "allowed": granted}
 
 
 def save_protected(doc: fitz.Document, path: str, user_password: str = "",

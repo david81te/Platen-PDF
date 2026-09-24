@@ -167,7 +167,16 @@ def _locate(page: fitz.Page, target_block: int, target_line: int | None = None):
 
 
 def parse_id(span_id: str) -> list[int]:
-    return [int(part) for part in span_id.split(":")]
+    try:
+        return [int(part) for part in str(span_id).split(":")]
+    except ValueError:
+        raise ValueError("That text reference is not valid.") from None
+
+
+def _page(doc: fitz.Document, page_no: int) -> fitz.Page:
+    if page_no < 0 or page_no >= doc.page_count:
+        raise ValueError("That text is on a page that no longer exists.")
+    return doc[page_no]
 
 
 def _horizontal(line: dict) -> bool:
@@ -177,8 +186,11 @@ def _horizontal(line: dict) -> bool:
 
 def edit_span(doc: fitz.Document, span_id: str, new_text: str, binder: FontBinder | None = None) -> dict:
     """Replace one text run, reflowing the rest of its line."""
-    page_no, b_index, l_index, s_index = parse_id(span_id)
-    page = doc[page_no]
+    parts = parse_id(span_id)
+    if len(parts) != 4:
+        raise ValueError("That text reference is not valid.")
+    page_no, b_index, l_index, s_index = parts
+    page = _page(doc, page_no)
     _, line = _locate(page, b_index, l_index)
     spans = [s for s in line["spans"] if s.get("text")]
     if s_index >= len(line["spans"]):
@@ -411,8 +423,11 @@ def _max_bottom(page: fitz.Page, rect: fitz.Rect, skip_block: int) -> float:
 
 def edit_block(doc: fitz.Document, block_id: str, new_text: str) -> dict:
     """Rewrite a paragraph, re-wrapping inside its original bounding box."""
-    page_no, b_index = parse_id(block_id)
-    page = doc[page_no]
+    parts = parse_id(block_id)
+    if len(parts) != 2:
+        raise ValueError("That paragraph reference is not valid.")
+    page_no, b_index = parts
+    page = _page(doc, page_no)
     block, _ = _locate(page, b_index)
     if not any(_horizontal(ln) for ln in block.get("lines", []) if ln.get("spans")):
         raise ValueError("Rotated or vertical text can't be edited in place yet.")
@@ -466,31 +481,59 @@ def add_text(doc: fitz.Document, page_no: int, rect: list[float], text: str,
     return result
 
 
-def replace_all(doc: fitz.Document, find: str, replace: str, match_case: bool = True) -> dict:
+def _swap(text: str, find: str, replace: str, match_case: bool) -> str:
+    """Replace every occurrence in one string, optionally ignoring case."""
+    if match_case:
+        return text.replace(find, replace)
+    out = []
+    lowered = text.lower()
+    needle = find.lower()
+    at = 0
+    while True:
+        found = lowered.find(needle, at)
+        if found < 0:
+            break
+        out.append(text[at:found])
+        out.append(replace)
+        at = found + len(needle)
+    out.append(text[at:])
+    return "".join(out)
+
+
+def replace_all(doc: fitz.Document, find: str, replace: str,
+                match_case: bool = True) -> dict:
     """Find/replace across the document.
 
-    Operates run-by-run, so a match is only rewritten when it falls entirely
-    within a single styled run; matches split across styling boundaries are
-    reported as skipped rather than silently mangled.
+    Each text run is rewritten at most once, and every occurrence inside it is
+    swapped in that single pass. Revisiting a run would never terminate when
+    the replacement itself contains the search text (replacing "ABC" with
+    "ABC-ABC", say), and re-running the search after each edit would keep
+    rediscovering the text it had just written.
+
+    A match is only rewritten when it falls entirely within one styled run;
+    matches split across styling boundaries are reported as skipped rather
+    than silently mangled.
     """
     if not find:
         raise ValueError("Nothing to find.")
     binder = FontBinder(doc)
     changed = 0
     skipped = 0
+    needle = find if match_case else find.lower()
 
     for page_no in range(doc.page_count):
+        done: set[tuple[float, float]] = set()
         while True:
-            page = doc[page_no]
-            structure = layout(page)
             hit = None
-            for block in structure["blocks"]:
+            for block in layout(doc[page_no])["blocks"]:
                 for line in block["lines"]:
                     for span in line["spans"]:
+                        key = (round(span["bbox"][0], 1), round(span["bbox"][1], 1))
+                        if key in done:
+                            continue
                         haystack = span["text"] if match_case else span["text"].lower()
-                        needle = find if match_case else find.lower()
                         if needle in haystack:
-                            hit = (span, haystack.index(needle))
+                            hit = (span, key)
                             break
                     if hit:
                         break
@@ -498,21 +541,19 @@ def replace_all(doc: fitz.Document, find: str, replace: str, match_case: bool = 
                     break
             if not hit:
                 break
-            span, at = hit
-            updated = span["text"][:at] + replace + span["text"][at + len(find):]
+            span, key = hit
+            done.add(key)  # this run is finished, whatever happens next
+            updated = _swap(span["text"], find, replace, match_case)
             if updated == span["text"]:
-                break
+                continue
             try:
                 edit_span(doc, span["id"], updated, binder)
                 changed += 1
             except Exception:
                 skipped += 1
-                break
 
-    page_total = doc.page_count
     remaining = 0
-    for page_no in range(page_total):
+    for page_no in range(doc.page_count):
         text = doc[page_no].get_text()
-        remaining += (text if match_case else text.lower()).count(
-            find if match_case else find.lower())
+        remaining += (text if match_case else text.lower()).count(needle)
     return {"replaced": changed, "skipped": skipped, "remaining": remaining}

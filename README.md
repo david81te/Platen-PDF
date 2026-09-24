@@ -43,8 +43,9 @@ workflow.
 and re-import values as CSV, flatten filled fields into the page.
 
 **Security** — AES-256 passwords for opening and for permissions, with
-per-permission control. True redaction that deletes the underlying text and
-image data rather than drawing a black box over it.
+per-permission control. Password-protected files prompt for the password on
+open and keep their protection when saved. True redaction that deletes the
+underlying text and image data rather than drawing a black box over it.
 
 **Search** — full-document find with a results list, surrounding-line context,
 match highlighting, match-case, next/previous navigation, and every hit drawn
@@ -146,3 +147,24 @@ Note: every attribute on the `Api` object is private. pywebview walks the public
 attributes of the JS-API object, and anything public pointing at the native
 window recurses through the WebView2 COM tree and silently kills the entire
 bridge.
+
+## Notes for future work
+
+Behaviour that looks like a bug but is deliberate, and traps worth knowing:
+
+- **Never read `doc.needs_pass` after authenticating.** It re-locks the
+  document: rendering keeps working while text extraction, search and export
+  silently start returning nothing. `Session` records the state once, at open.
+- **`replace_all` rewrites each run at most once.** Re-scanning after every
+  edit never terminates when the replacement contains the search text
+  (replacing `ABC` with `ABC-ABC`).
+- **`pages.move(a, b)` inserts *before* what is at `b`**, so moving forwards
+  lands the page one index earlier than `b`. Use `reorder()` for exact
+  positions.
+- **OCR raises when every selected page already has text**, rather than
+  silently doing nothing, so the UI can point at the Force option.
+- **`Api` attributes are all private.** A public one pointing at the native
+  window recurses through the WebView2 COM tree and kills the whole JS bridge.
+- **Do not test the UI with synthetic mouse or keyboard input.** It types into
+  whatever happens to have focus. `tests/test_ui.py` drives `app.js` through
+  `evaluate_js` instead.
