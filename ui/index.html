@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PDF Studio</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div id="menubar">
+  <div class="brand">PDF&nbsp;Studio</div>
+  <nav>
+    <div class="menu" data-menu="file"><span>File</span>
+      <ul>
+        <li data-act="open">Open…<em>Ctrl+O</em></li>
+        <li data-act="create">New from files…</li>
+        <li class="sep"></li>
+        <li data-act="save">Save<em>Ctrl+S</em></li>
+        <li data-act="saveas">Save As…</li>
+        <li class="sep"></li>
+        <li data-act="props">Document properties…</li>
+        <li data-act="close">Close document</li>
+      </ul>
+    </div>
+    <div class="menu" data-menu="edit"><span>Edit</span>
+      <ul>
+        <li data-act="undo">Undo<em>Ctrl+Z</em></li>
+        <li data-act="redo">Redo<em>Ctrl+Y</em></li>
+        <li class="sep"></li>
+        <li data-act="find">Find…<em>Ctrl+F</em></li>
+        <li data-act="replace">Find &amp; replace…</li>
+      </ul>
+    </div>
+    <div class="menu" data-menu="pages"><span>Pages</span>
+      <ul>
+        <li data-act="rotateL">Rotate left</li>
+        <li data-act="rotateR">Rotate right</li>
+        <li data-act="insert">Insert blank page…</li>
+        <li data-act="duplicate">Duplicate page</li>
+        <li data-act="delete">Delete page</li>
+        <li class="sep"></li>
+        <li data-act="merge">Merge files…</li>
+        <li data-act="split">Split document…</li>
+        <li data-act="extract">Extract pages…</li>
+        <li class="sep"></li>
+        <li data-act="cropstart">Crop page…</li>
+        <li data-act="cropreset">Reset crop</li>
+      </ul>
+    </div>
+    <div class="menu" data-menu="insert"><span>Insert</span>
+      <ul>
+        <li data-act="watermark">Watermark…</li>
+        <li data-act="wmimage">Image watermark…</li>
+        <li data-act="numbers">Page numbers…</li>
+        <li data-act="headfoot">Header / footer…</li>
+        <li data-act="bg">Background colour…</li>
+        <li class="sep"></li>
+        <li data-act="image">Image…</li>
+        <li data-act="bookmarks">Bookmarks…</li>
+      </ul>
+    </div>
+    <div class="menu" data-menu="convert"><span>Convert</span>
+      <ul>
+        <li data-act="docx">To Word (.docx)…</li>
+        <li data-act="xlsx">To Excel (.xlsx)…</li>
+        <li data-act="pptx">To PowerPoint (.pptx)…</li>
+        <li data-act="images">To images…</li>
+        <li data-act="text">To plain text…</li>
+        <li class="sep"></li>
+        <li data-act="ocr">Recognise text (OCR)…</li>
+        <li data-act="compress">Compress…</li>
+      </ul>
+    </div>
+    <div class="menu" data-menu="protect"><span>Protect</span>
+      <ul>
+        <li data-act="protect">Encrypt with password…</li>
+        <li data-act="unprotect">Save unprotected copy…</li>
+        <li class="sep"></li>
+        <li data-act="flatten">Flatten annotations</li>
+        <li data-act="flattenforms">Flatten form fields</li>
+        <li class="sep"></li>
+        <li data-act="redactapply">Apply redactions</li>
+        <li data-act="redactclear">Clear redaction marks</li>
+      </ul>
+    </div>
+  </nav>
+  <div class="docname" id="docname">No document open</div>
+</div>
+
+<div id="toolbar">
+  <div class="tools">
+    <button class="tool active" data-tool="select" title="Select">▷</button>
+    <button class="tool" data-tool="text" title="Edit text">T</button>
+    <button class="tool" data-tool="addtext" title="Add text box">T+</button>
+    <button class="tool" data-tool="highlight" title="Highlight">▬</button>
+    <button class="tool" data-tool="underline" title="Underline">U</button>
+    <button class="tool" data-tool="strikeout" title="Strike through">S</button>
+    <button class="tool" data-tool="ink" title="Draw">✎</button>
+    <button class="tool" data-tool="rect" title="Rectangle">▭</button>
+    <button class="tool" data-tool="circle" title="Ellipse">◯</button>
+    <button class="tool" data-tool="arrow" title="Arrow">↗</button>
+    <button class="tool" data-tool="note" title="Sticky note">🗨</button>
+    <button class="tool" data-tool="stamp" title="Stamp">✓</button>
+    <button class="tool" data-tool="sign" title="Place signature">✍</button>
+    <button class="tool" data-tool="redact" title="Mark for redaction">█</button>
+    <button class="tool" data-tool="link" title="Add link">🔗</button>
+    <button class="tool" data-tool="field" title="Add form field">▤</button>
+  </div>
+  <div class="spacer"></div>
+  <div class="zoombox">
+    <button id="zoomout">−</button>
+    <span id="zoomlabel">100%</span>
+    <button id="zoomin">+</button>
+    <button id="zoomfit" title="Fit width">⤢</button>
+  </div>
+</div>
+
+<div id="main">
+  <aside id="sidebar">
+    <div class="tabs">
+      <button class="tab active" data-pane="thumbs">Pages</button>
+      <button class="tab" data-pane="outline">Marks</button>
+      <button class="tab" data-pane="comments">Notes</button>
+      <button class="tab" data-pane="sigs">Signatures</button>
+    </div>
+    <div class="pane active" id="pane-thumbs"></div>
+    <div class="pane" id="pane-outline"></div>
+    <div class="pane" id="pane-comments"></div>
+    <div class="pane" id="pane-sigs">
+      <div class="sig-actions">
+        <button id="sig-add">Add signature image…</button>
+      </div>
+      <div id="sig-list"></div>
+      <p class="hint">Pick a signature, choose the <b>✍</b> tool, then drag a
+      box on the page. Signatures are drawn into the page itself, so once the
+      file is saved they cannot be moved or deleted.</p>
+    </div>
+  </aside>
+
+  <section id="viewer">
+    <div id="stage">
+      <div id="pagewrap">
+        <img id="pageimg" alt="">
+        <div id="overlay"></div>
+        <canvas id="scratch"></canvas>
+      </div>
+    </div>
+    <div id="empty">
+      <h1>PDF Studio</h1>
+      <p>Open a PDF, Word document, spreadsheet or image to begin.</p>
+      <button id="empty-open">Open a file…</button>
+    </div>
+  </section>
+
+  <aside id="inspector">
+    <div id="insp-body"></div>
+  </aside>
+</div>
+
+<div id="statusbar">
+  <button id="prev">‹</button>
+  <span><input id="pagenum" type="text" value="1" size="3"> / <span id="pagetotal">0</span></span>
+  <button id="next">›</button>
+  <div class="spacer"></div>
+  <div id="status"></div>
+</div>
+
+<div id="modal-back"><div id="modal"></div></div>
+<div id="toast"></div>
+<div id="busy"><div class="spinner"></div><span id="busytext">Working…</span></div>
+
+<script src="app.js"></script>
+</body>
+</html>
