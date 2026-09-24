@@ -130,6 +130,8 @@ function setInfo(info) {
     $('empty').style.display = 'grid';
     $('docname').textContent = 'No document open';
     $('pane-thumbs').innerHTML = '';
+    $('pagetotal').textContent = '0';
+    refreshTabs();
     return;
   }
   S.info = info;
@@ -151,6 +153,7 @@ function escapeHtml(s) {
 async function refresh(full = true) {
   if (S.hits.length) { S.hits = []; S.hitIndex = -1; renderHits(false); }
   setInfo(await run('doc_info'));
+  refreshTabs();
   if (!S.info) return;
   await drawPage();
   if (full) { loadThumbs(); loadOutline(); loadComments(); }
@@ -475,6 +478,61 @@ function promptField(rect) {
     }, 'Add field');
 }
 
+/* ---------- document tabs ---------- */
+
+async function refreshTabs() {
+  const state = await run('tab_list');
+  if (!state) return;
+  const host = $('tabs');
+  host.innerHTML = '';
+  state.tabs.forEach((t) => {
+    const tab = el('div', 'dtab' + (t.active ? ' on' : ''));
+    tab.title = t.path || t.name;
+    tab.innerHTML = (t.dirty ? '<span class="dot"></span>' : '') +
+      '<span class="nm">' + escapeHtml(t.name) +
+      (t.open ? ' <small>(' + t.page_count + ')</small>' : '') + '</span>' +
+      '<span class="cl" title="Close">✕</span>';
+    tab.onclick = (e) => {
+      if (e.target.classList.contains('cl')) return closeTab(t.index);
+      if (!t.active) switchTab(t.index);
+    };
+    host.appendChild(tab);
+  });
+}
+
+function resetPerDocumentState() {
+  S.page = 0;
+  S.hits = [];
+  S.hitIndex = -1;
+  S.findQuery = '';
+  S.layout = null;
+  S.redactions = [];
+  S.fit = false;
+  cancelEdit();
+  const box = $('findq');
+  if (box) box.value = '';
+}
+
+async function switchTab(index) {
+  const res = await run('tab_switch', index);
+  if (!res) return;
+  resetPerDocumentState();
+  setInfo(res.info);
+  await refresh();
+}
+
+async function closeTab(index) {
+  const state = await run('tab_list');
+  const tab = state && state.tabs[index];
+  if (tab && tab.dirty &&
+      !confirm('"' + tab.name + '" has unsaved changes. Close it anyway?')) return;
+  const res = await run('tab_close', index);
+  if (!res) return;
+  resetPerDocumentState();
+  setInfo(res.info && res.info.open ? res.info : { open: false });
+  await refresh();
+}
+
 /* ---------- sidebar panes ---------- */
 
 async function loadThumbs() {
@@ -652,7 +710,11 @@ function setTool(tool) {
 /* ---------- menu actions ---------- */
 
 const ACTIONS = {
-  open: async () => { setInfo(await busyRun('Opening…', 'open_dialog')); await refresh(); },
+  open: async () => {
+    resetPerDocumentState();
+    setInfo(await busyRun('Opening…', 'open_dialog'));
+    await refresh();
+  },
   create: async () => { setInfo(await busyRun('Building PDF…', 'create_from_files')); await refresh(); },
   save: async () => { const r = await busyRun('Saving…', 'save'); if (r && !r.cancelled) { setInfo(r); toast('Saved.', 'ok'); } },
   saveas: async () => { const r = await busyRun('Saving…', 'save_as'); if (r && !r.cancelled) { setInfo(r); toast('Saved.', 'ok'); } },
@@ -676,6 +738,26 @@ const ACTIONS = {
     await run('page_delete', [S.page]); await refresh();
   },
   merge: async () => { await busyRun('Merging…', 'page_merge', S.page + 1); await refresh(); },
+  mergetab: async () => {
+    const state = await run('tab_list');
+    if (!state) return;
+    const others = state.tabs.filter((t) => t.open && !t.active);
+    if (!others.length) {
+      toast('Open another document in a second tab first.', 'err');
+      return;
+    }
+    modal('Merge an open tab',
+      '<div class="field"><label>Take all pages from</label><select name="src">' +
+      others.map((t) => '<option value="' + t.index + '">' + escapeHtml(t.name) +
+        ' (' + t.page_count + ' pages)</option>').join('') + '</select></div>' +
+      '<div class="field"><label>Insert at page</label><input name="at" type="number" min="1" value="' +
+      (S.info ? S.info.page_count + 1 : 1) + '"></div>',
+      async (v) => {
+        const at = Math.max(0, (parseInt(v.at, 10) || 1) - 1);
+        const r = await busyRun('Merging…', 'merge_tab', parseInt(v.src, 10), at);
+        if (r) { toast('Added ' + r.added + ' pages.', 'ok'); await refresh(); }
+      }, 'Merge');
+  },
   split: () => modal('Split document',
     '<div class="field"><label>Mode</label><select name="mode"><option value="every">Every N pages</option>' +
     '<option value="ranges">Page ranges</option></select></div>' +
@@ -995,6 +1077,7 @@ document.querySelectorAll('.tab').forEach((b) => {
 });
 
 $('empty-open').onclick = ACTIONS.open;
+$('tabadd').onclick = ACTIONS.open;
 $('sig-add').onclick = () => modal('Add a signature',
   '<div class="field"><label>Name</label><input name="name" placeholder="Ernie Willmore"></div>' +
   '<div class="field"><label>Role (optional)</label><input name="role" placeholder="Managing Partner"></div>' +
@@ -1056,6 +1139,7 @@ ready().then(async () => {
   if (s && s.ocr && !s.ocr.available) {
     console.warn('OCR engine missing from this build.');
   }
+  refreshTabs();
   const pending = await run('pending_open');
   if (pending && pending.path) await window.openOnStart(pending.path);
 });

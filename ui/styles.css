@@ -96,7 +96,7 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
 #zoomlabel { min-width: 46px; text-align: center; color: var(--muted); }
 
 /* ---- layout ---- */
-#main { display: flex; height: calc(100% - 34px - 42px - 28px); }
+#main { display: flex; height: calc(100% - 34px - 42px - 31px - 28px); }
 
 #sidebar {
   width: 216px; flex: 0 0 216px; display: flex; flex-direction: column;
@@ -250,3 +250,25 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
   background: #ffd24a59; outline: 1px solid #ffb02099;
 }
 .searchhit.on { background: #ff8c1a8c; outline: 2px solid #ff8c1a; }
+
+/* ---- document tabs ---- */
+#tabbar {
+  display: flex; align-items: stretch; height: 31px;
+  background: #1f242e; border-bottom: 1px solid var(--line);
+}
+#tabs { display: flex; flex: 1; overflow-x: auto; overflow-y: hidden; }
+#tabs::-webkit-scrollbar { height: 0; }
+.dtab {
+  display: flex; align-items: center; gap: 7px;
+  padding: 0 8px 0 12px; max-width: 220px; min-width: 110px;
+  border-right: 1px solid var(--line); cursor: pointer;
+  color: var(--muted); font-size: 12px; white-space: nowrap;
+}
+.dtab:hover { background: var(--panel-2); }
+.dtab.on { background: var(--panel); color: var(--ink); box-shadow: inset 0 -2px 0 var(--accent); }
+.dtab .nm { overflow: hidden; text-overflow: ellipsis; }
+.dtab .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: 0 0 6px; }
+.dtab .cl { margin-left: auto; padding: 0 4px; border-radius: 4px; opacity: .55; }
+.dtab .cl:hover { opacity: 1; background: #ffffff1f; }
+#tabadd { border: 0; border-radius: 0; background: transparent; color: var(--muted); padding: 0 12px; }
+#tabadd:hover { background: var(--panel-2); color: var(--ink); }

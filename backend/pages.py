@@ -125,6 +125,16 @@ def merge(doc: fitz.Document, paths: list[str], at: int | None = None) -> dict:
     return {"added": added, "page_count": doc.page_count}
 
 
+def merge_document(doc: fitz.Document, other: fitz.Document,
+                   at: int | None = None) -> dict:
+    """Merge an already-open document (another tab) into this one."""
+    if other is doc:
+        raise PdfError("A document cannot be merged into itself.")
+    position = doc.page_count if at is None else max(0, min(int(at), doc.page_count))
+    doc.insert_pdf(other, start_at=position)
+    return {"added": other.page_count, "page_count": doc.page_count}
+
+
 def split(doc: fitz.Document, out_dir: str, mode: str = "every",
           size: int = 1, ranges: str = "", stem: str = "part") -> dict:
     os.makedirs(out_dir, exist_ok=True)

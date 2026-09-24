@@ -24,7 +24,11 @@ marker beside a paragraph to rewrite the whole paragraph with re-wrapping.
 Fonts, size, colour, bold/italic, alignment and line spacing are preserved.
 Also: add text boxes, delete regions, find and replace across the document.
 
-**Pages** — rotate, insert, delete, duplicate, move, crop, extract, merge
+**Multiple documents** — open as many as you like in tabs across the top. Each keeps its own page, zoom, search results and undo history. A dot marks unsaved changes, and closing a dirty tab asks first.
+
+**Pages** — rotate, insert, delete, duplicate, move, crop, extract pages
+to a new file, merge other files in, merge another open tab in, and split
+by page count or ranges.
 multiple files, split by count or ranges.
 
 **Markup** — highlight, underline, strike-through (all snap to word

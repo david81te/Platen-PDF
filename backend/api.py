@@ -52,12 +52,43 @@ class Api:
     # private and only the @endpoint methods are exposed.
 
     def __init__(self):
-        self._session = Session()
+        self._docs = [Session()]
+        self._active = 0
         self._window = None
         self._startup_path = None
 
     def attach_window(self, window):
         self._window = window
+
+    # Every endpoint works against whichever tab is in front. Exposing this as
+    # a property means the rest of the class needed no changes when multiple
+    # documents arrived.
+    @property
+    def _session(self) -> Session:
+        return self._docs[self._active]
+
+    def _tab_state(self) -> dict:
+        tabs = []
+        for index, session in enumerate(self._docs):
+            info = session.info()
+            tabs.append({
+                "index": index,
+                "name": info.get("name") if info.get("open") else "Empty",
+                "open": bool(info.get("open")),
+                "dirty": bool(info.get("dirty")),
+                "page_count": info.get("page_count", 0),
+                "path": info.get("path"),
+                "active": index == self._active,
+            })
+        return {"tabs": tabs, "active": self._active}
+
+    def _slot_for_new_document(self) -> int:
+        """Reuse the front tab when it is empty, otherwise start a new one."""
+        if self._session.doc is None:
+            return self._active
+        self._docs.append(Session())
+        self._active = len(self._docs) - 1
+        return self._active
 
     # ---- dialogs --------------------------------------------------------
 
@@ -106,14 +137,70 @@ class Api:
 
     @endpoint
     def open_dialog(self):
-        chosen = self._ask_open(types=ANY_INPUT)
+        chosen = self._ask_open(multiple=True, types=ANY_INPUT)
         if not chosen:
             return {"cancelled": True}
-        return self._open_any(chosen[0])
+        opened = None
+        for path in chosen:
+            self._slot_for_new_document()
+            opened = self._open_any(path)
+            if opened.get("needs_password"):
+                break
+        return opened
 
     @endpoint
     def open_path(self, path, password=None):
+        if password is None:
+            self._slot_for_new_document()
         return self._open_any(path, password)
+
+    # ---- tabs -----------------------------------------------------------
+
+    @endpoint
+    def tab_list(self):
+        return self._tab_state()
+
+    @endpoint
+    def tab_switch(self, index):
+        index = int(index)
+        if index < 0 or index >= len(self._docs):
+            raise PdfError("That tab is no longer open.")
+        self._active = index
+        return {**self._tab_state(), "info": self._session.info()}
+
+    @endpoint
+    def tab_close(self, index):
+        index = int(index)
+        if index < 0 or index >= len(self._docs):
+            raise PdfError("That tab is no longer open.")
+        self._docs[index].close()
+        self._docs.pop(index)
+        if not self._docs:                      # always keep one empty slot
+            self._docs.append(Session())
+        self._active = min(self._active if index > self._active
+                           else max(0, self._active - 1), len(self._docs) - 1)
+        return {**self._tab_state(), "info": self._session.info()}
+
+    @endpoint
+    def tab_new(self):
+        self._docs.append(Session())
+        self._active = len(self._docs) - 1
+        return self._tab_state()
+
+    @endpoint
+    def merge_tab(self, source_index, at=None):
+        """Merge another open tab into the front one."""
+        source_index = int(source_index)
+        if source_index < 0 or source_index >= len(self._docs):
+            raise PdfError("That tab is no longer open.")
+        if source_index == self._active:
+            raise PdfError("Choose a different tab to merge from.")
+        other = self._docs[source_index].require()
+        doc = self._session.require()
+        self._session.checkpoint()
+        result = pages.merge_document(doc, other, None if at is None else int(at))
+        self._session.touch()
+        return result
 
     def _open_any(self, path, password=None):
         extension = os.path.splitext(path)[1].lower()
@@ -136,7 +223,7 @@ class Api:
     @endpoint
     def close_doc(self):
         self._session.close()
-        return {"open": False}
+        return {"open": False, **self._tab_state()}
 
     @endpoint
     def doc_info(self):
