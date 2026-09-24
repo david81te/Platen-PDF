@@ -1,6 +1,7 @@
 """PDF Studio - a standalone PDF editor."""
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import sys
@@ -30,6 +31,7 @@ def selftest() -> int:
     from backend import convert
 
     print("base dir:", _base_dir())
+    print("environment:", shell_integration.environment())
     print("ui present:", os.path.isfile(os.path.join(_base_dir(), "ui", "index.html")))
     status = convert.ocr_status()
     print("ocr status:", status)
@@ -73,6 +75,26 @@ def main() -> None:
         shell_integration.unregister()
         print("Removed PDF Studio from the Windows file associations.")
         raise SystemExit(0)
+
+    missing = shell_integration.webview2_version() is None
+    if missing:
+        message = (
+            "PDF Studio needs the Microsoft Edge WebView2 runtime, which is "
+            "not installed on this PC.
+
+"
+            "It is free from Microsoft and installs in under a minute:
+"
+            + shell_integration.WEBVIEW2_DOWNLOAD +
+            "
+
+Download the Evergreen Standalone Installer, run it, then "
+            "start PDF Studio again.")
+        try:
+            ctypes.windll.user32.MessageBoxW(None, message, APP_NAME, 0x10)
+        except Exception:
+            print(message)
+        raise SystemExit(1)
 
     startup = [a for a in sys.argv[1:] if os.path.isfile(a)]
 

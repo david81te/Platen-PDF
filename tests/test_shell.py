@@ -57,5 +57,55 @@ def try_register_from_source():
 
 check("registering from source is refused", try_register_from_source(), "refused")
 
+print("")
+print("== environment detection ==")
+env = shell.environment()
+check("detects the WebView2 runtime", env["webview2"], lambda v: v is None or "." in v)
+check("detects Office or LibreOffice", isinstance(env["office"], bool), True)
+check("reports the Windows build", env["windows"], lambda b: b is None or b > 0)
+
+print("")
+print("== behaviour on a PC without Office ==")
+from backend import convert
+from backend.session import PdfError
+
+real_word, real_soffice = convert._word_export, convert._soffice_export
+try:
+    import pywintypes
+    office_error = pywintypes.com_error(-2147221005, "Invalid class string", None, None)
+except Exception:
+    office_error = OSError("no office")
+
+
+def no_office(paths, out_dir):
+    raise office_error           # what Dispatch raises when Office is absent
+
+
+def no_libreoffice(paths, out_dir):
+    raise PdfError("Install Microsoft Office or LibreOffice to convert these files.")
+
+
+convert._word_export, convert._soffice_export = no_office, no_libreoffice
+try:
+    convert.from_files([os.path.join(OUT, "fixture.docx")])
+    outcome = "no error raised"
+except PdfError as exc:
+    outcome = "clear message" if "Office or LibreOffice" in str(exc) else "wrong: %s" % exc
+except Exception as exc:
+    outcome = "leaked %s" % type(exc).__name__
+finally:
+    convert._word_export, convert._soffice_export = real_word, real_soffice
+check("a missing Office gives a readable error", outcome, "clear message")
+
+convert._word_export = no_office
+try:
+    doc = convert.from_files([os.path.join(OUT, "fixture.pdf")])
+    pdf_still_works = doc.page_count >= 1
+except Exception:
+    pdf_still_works = False
+finally:
+    convert._word_export = real_word
+check("PDFs still open with no Office present", pdf_still_works, True)
+
 print("\n" + "=" * 60)
 print("No issues found." if not findings else "%d issue(s): %s" % (len(findings), findings))

@@ -284,10 +284,21 @@ def from_files(paths: list[str]) -> fitz.Document:
         office = [p for p in paths if os.path.splitext(p)[1].lower() in OFFICE_INPUTS]
         converted: dict[str, str] = {}
         if office:
-            try:
-                produced = _word_export(office, scratch)
-            except PdfError:
-                produced = _soffice_export(office, scratch)
+            # Office raises com_error, not PdfError, when it is not installed,
+            # so catch broadly or the LibreOffice fallback is never reached.
+            produced: list[str] = []
+            for attempt in (_word_export, _soffice_export):
+                try:
+                    produced = attempt(office, scratch)
+                except Exception:
+                    produced = []
+                if produced:
+                    break
+            if not produced:
+                raise PdfError(
+                    "Opening Word, Excel and PowerPoint files needs Microsoft "
+                    "Office or LibreOffice installed on this PC. PDFs and "
+                    "images work without either.")
             for source, result in zip(office, produced):
                 converted[source] = result
 

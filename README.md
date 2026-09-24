@@ -30,6 +30,36 @@ makes it slow to start. Use the folder build unless you need portability.
 Run either directly, or pass a file: `PDFStudio.exe contract.pdf`. To run from
 source: `python app.py`.
 
+## Sharing it with other people
+
+Both builds are self-contained: no Python, no installer, nothing to set up.
+Send `dist\PDFStudio.exe` (single file) or a zip of `dist\PDFStudio\`.
+Verified by running a copy in an empty folder with no Python or project files
+present.
+
+What a recipient needs:
+
+- **64-bit Windows.** Not ARM Windows, not macOS.
+- **Edge WebView2**, which Windows 11 and up-to-date Windows 10 already have.
+  If it is missing the app says so and links to the free Microsoft installer
+  rather than failing silently.
+- **Microsoft Office or LibreOffice — only** to open Word/Excel/PowerPoint
+  files. Everything else, including OCR, works without either, and the app
+  explains the limit instead of erroring out.
+
+What to expect:
+
+- **SmartScreen will warn** ("Windows protected your PC") because the file is
+  not code-signed: More info > Run anyway. Silencing this needs a paid signing
+  certificate.
+- **Some antivirus flags PyInstaller single-file builds.** The folder build is
+  flagged less often, being an ordinary exe beside its libraries.
+- **Too big to email** at 139 MB. Use OneDrive, SharePoint or Teams.
+
+Each person gets their own signatures (`%APPDATA%\PDFEditorPro`) and their own
+file associations. Nothing is written outside the user profile, and nothing
+outside `HKEY_CURRENT_USER` in the registry.
+
 ## Opening PDFs from Explorer
 
 ```powershell

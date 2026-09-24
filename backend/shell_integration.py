@@ -174,3 +174,60 @@ def open_default_apps_settings() -> bool:
         except Exception:
             continue
     return False
+
+
+# ---------------------------------------------------------------------------
+# Runtime environment
+# ---------------------------------------------------------------------------
+
+WEBVIEW2_CLIENT = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+WEBVIEW2_DOWNLOAD = "https://developer.microsoft.com/microsoft-edge/webview2/"
+
+
+def webview2_version() -> str | None:
+    """The installed Edge WebView2 runtime version, if there is one.
+
+    Windows 11 and up-to-date Windows 10 ship it with Edge, but locked-down or
+    LTSC images may not have it, and without it the window cannot be created.
+    """
+    candidates = (
+        (winreg.HKEY_LOCAL_MACHINE,
+         r"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients"
+         + "\\" + WEBVIEW2_CLIENT),
+        (winreg.HKEY_LOCAL_MACHINE,
+         r"SOFTWARE\Microsoft\EdgeUpdate\Clients"
+         + "\\" + WEBVIEW2_CLIENT),
+        (winreg.HKEY_CURRENT_USER,
+         r"Software\Microsoft\EdgeUpdate\Clients"
+         + "\\" + WEBVIEW2_CLIENT),
+    )
+    for root, path in candidates:
+        try:
+            with winreg.OpenKey(root, path) as key:
+                version = winreg.QueryValueEx(key, "pv")[0]
+            if version and version != "0.0.0.0":
+                return version
+        except OSError:
+            continue
+    return None
+
+
+def office_available() -> bool:
+    try:
+        word_key = (r"SOFTWARE" + chr(92) + "Microsoft" + chr(92) + "Windows"
+                    + chr(92) + "CurrentVersion" + chr(92) + "App Paths"
+                    + chr(92) + "WINWORD.EXE")
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, word_key):
+            return True
+    except OSError:
+        pass
+    import shutil
+    return bool(shutil.which("soffice") or shutil.which("soffice.exe"))
+
+
+def environment() -> dict:
+    return {
+        "webview2": webview2_version(),
+        "office": office_available(),
+        "windows": sys.getwindowsversion().build if hasattr(sys, "getwindowsversion") else None,
+    }
