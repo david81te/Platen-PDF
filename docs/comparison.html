@@ -1,0 +1,481 @@
+<title>Acrobat vs PDF Studio</title>
+<style>
+  /* Light is the base set. Every colour below is a token so the two dark
+     branches only have to redefine tokens, never components. */
+  :root {
+    --paper:      #FBFAF7;
+    --surface:    #FFFFFF;
+    --surface-2:  #F4F2ED;
+    --ink:        #171C26;
+    --muted:      #5C6675;
+    --rule:       #E4E1D9;
+    --rule-soft:  #EEEBE4;
+    --accent:     #2B5FD9;
+    --studio:     #2B5FD9;
+    --acrobat:    #7A6F63;
+    --full:       #1B6E4B;
+    --full-bg:    #E4F0E9;
+    --part:       #8A6510;
+    --part-bg:    #F6EEDC;
+    --none:       #8C5A56;
+    --none-bg:    #F3E7E5;
+    --shadow:     0 1px 2px #171c260d, 0 8px 24px #171c260a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:     #12161D;
+      --surface:   #181D26;
+      --surface-2: #1E242F;
+      --ink:       #E9EBF0;
+      --muted:     #98A2B2;
+      --rule:      #2A313D;
+      --rule-soft: #222831;
+      --accent:    #7BA4FF;
+      --studio:    #7BA4FF;
+      --acrobat:   #A99B8B;
+      --full:      #6FD3A2;
+      --full-bg:   #16302484;
+      --part:      #E0B45C;
+      --part-bg:   #35290F84;
+      --none:      #E2938C;
+      --none-bg:   #35201E84;
+      --shadow:    0 1px 2px #0006, 0 10px 30px #0004;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:     #12161D;
+    --surface:   #181D26;
+    --surface-2: #1E242F;
+    --ink:       #E9EBF0;
+    --muted:     #98A2B2;
+    --rule:      #2A313D;
+    --rule-soft: #222831;
+    --accent:    #7BA4FF;
+    --studio:    #7BA4FF;
+    --acrobat:   #A99B8B;
+    --full:      #6FD3A2;
+    --full-bg:   #16302484;
+    --part:      #E0B45C;
+    --part-bg:   #35290F84;
+    --none:      #E2938C;
+    --none-bg:   #35201E84;
+    --shadow:    0 1px 2px #0006, 0 10px 30px #0004;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 16px/1.6 "Segoe UI", system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 56px 28px 96px;
+    display: flex;
+    flex-direction: column;
+    gap: 44px;
+  }
+
+  /* ---- masthead ---- */
+  header { display: flex; flex-direction: column; gap: 14px; }
+  .eyebrow {
+    font: 600 11.5px/1 "Consolas", "Cascadia Mono", monospace;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  h1 {
+    margin: 0;
+    font: 400 clamp(34px, 5vw, 50px)/1.1 "Palatino Linotype", "Book Antiqua",
+          Palatino, Georgia, serif;
+    letter-spacing: -.012em;
+    text-wrap: balance;
+  }
+  .standfirst {
+    margin: 0;
+    max-width: 64ch;
+    color: var(--muted);
+    font-size: 17px;
+  }
+
+  /* ---- tally ---- */
+  .tally {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 14px;
+  }
+  .tally div {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 16px 18px;
+    box-shadow: var(--shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .tally b {
+    font: 600 30px/1 "Consolas", "Cascadia Mono", monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  .tally span { font-size: 13.5px; color: var(--muted); }
+  .tally .t-full b { color: var(--full); }
+  .tally .t-part b { color: var(--part); }
+  .tally .t-none b { color: var(--none); }
+
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 18px;
+    align-items: center;
+    font-size: 13.5px;
+    color: var(--muted);
+    border-top: 1px solid var(--rule-soft);
+    border-bottom: 1px solid var(--rule-soft);
+    padding: 14px 0;
+  }
+
+  /* ---- sections ---- */
+  section { display: flex; flex-direction: column; gap: 12px; }
+  h2 {
+    margin: 0;
+    font: 600 13px/1 "Consolas", "Cascadia Mono", monospace;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--ink);
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--ink);
+  }
+  .note {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14.5px;
+    max-width: 72ch;
+  }
+
+  .scroller { overflow-x: auto; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14.5px;
+    min-width: 660px;
+  }
+  thead th {
+    text-align: left;
+    font: 600 11.5px/1 "Consolas", "Cascadia Mono", monospace;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 0 12px 9px 0;
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+  thead th.c-acrobat { color: var(--acrobat); }
+  thead th.c-studio  { color: var(--studio); }
+  tbody td {
+    padding: 11px 12px 11px 0;
+    border-bottom: 1px solid var(--rule-soft);
+    vertical-align: top;
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.cap { font-weight: 600; width: 27%; }
+  td.acro, td.stud { width: 13%; white-space: nowrap; }
+  td.why { color: var(--muted); font-size: 13.5px; }
+
+  .chip {
+    display: inline-block;
+    padding: 2.5px 9px;
+    border-radius: 999px;
+    font: 600 11.5px/1.5 "Consolas", "Cascadia Mono", monospace;
+    letter-spacing: .03em;
+    white-space: nowrap;
+  }
+  .chip.full { color: var(--full); background: var(--full-bg); }
+  .chip.part { color: var(--part); background: var(--part-bg); }
+  .chip.none { color: var(--none); background: var(--none-bg); }
+
+  /* ---- closing panels ---- */
+  .panel {
+    background: var(--surface-2);
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    padding: 22px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .panel h3 {
+    margin: 0;
+    font: 600 15px/1.3 "Segoe UI", system-ui, sans-serif;
+  }
+  .panel ul { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 7px; }
+  .panel li { color: var(--muted); font-size: 14.5px; }
+  .panel li b { color: var(--ink); font-weight: 600; }
+
+  footer {
+    color: var(--muted);
+    font-size: 13px;
+    border-top: 1px solid var(--rule-soft);
+    padding-top: 18px;
+  }
+
+  @media (max-width: 620px) {
+    .wrap { padding: 36px 18px 64px; gap: 34px; }
+    td.cap { width: auto; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Willmore Capital Partners &middot; internal</div>
+    <h1>Acrobat Pro vs PDF&nbsp;Studio</h1>
+    <p class="standfirst">What the in-house editor covers, what it covers partly,
+      and what it does not do at all. Compiled from the shipped feature set, not
+      from intentions &mdash; every row below was checked against the code.</p>
+  </header>
+
+  <div class="tally">
+    <div class="t-full"><b id="n-full">0</b><span>Covered &mdash; does the job Acrobat does</span></div>
+    <div class="t-part"><b id="n-part">0</b><span>Partly covered &mdash; works with limits</span></div>
+    <div class="t-none"><b id="n-none">0</b><span>Not in PDF Studio</span></div>
+  </div>
+
+  <div class="legend">
+    <span><span class="chip full">covered</span> &nbsp;works for everyday use</span>
+    <span><span class="chip part">partial</span> &nbsp;works, with the caveat noted</span>
+    <span><span class="chip none">no</span> &nbsp;not available</span>
+  </div>
+
+  <section>
+    <h2>Reading and getting around</h2>
+    <div class="scroller"><table>
+      <thead><tr><th>Capability</th><th class="c-acrobat">Acrobat&nbsp;Pro</th><th class="c-studio">PDF&nbsp;Studio</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td class="cap">Open and view PDFs</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">Also opens Word, Excel, PowerPoint and images directly, converting on the way in.</td></tr>
+        <tr><td class="cap">Several documents at once</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">Tabs, each with its own page, zoom, search and undo history.</td></tr>
+        <tr><td class="cap">Page thumbnails</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why"></td></tr>
+        <tr><td class="cap">Full-text search</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">Results list with surrounding line, match case, hits drawn on the page.</td></tr>
+        <tr><td class="cap">Zoom, fit width, fit page</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">Refits on window resize; Ctrl+wheel to zoom.</td></tr>
+        <tr><td class="cap">Bookmarks</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip part">partial</span></td><td class="why">View, add and rename. No drag-to-nest restructuring.</td></tr>
+        <tr><td class="cap">Layers, attachments, portfolios</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">Rare outside design and legal bundles.</td></tr>
+        <tr><td class="cap">Read aloud</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why"></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Editing text</h2>
+    <p class="note">The headline feature, and the one with the most nuance. PDF Studio was
+      built and tuned against PDFs exported from Word, which is where its text handling is
+      most reliable.</p>
+    <div class="scroller"><table>
+      <thead><tr><th>Capability</th><th class="c-acrobat">Acrobat&nbsp;Pro</th><th class="c-studio">PDF&nbsp;Studio</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td class="cap">Edit existing text in place</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">Click a run and retype. Font, size, colour, bold and italic are kept.</td></tr>
+        <tr><td class="cap">Paragraph re-wrapping</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">Longer text re-wraps the paragraph and stops short of whatever sits below it.</td></tr>
+        <tr><td class="cap">Restyle existing text</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip part">partial</span></td><td class="why">Existing styling is preserved, not re-chosen; there is no font picker for text already on the page.</td></tr>
+        <tr><td class="cap">Add a text box</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">Stays movable, resizable and retypeable until flattened.</td></tr>
+        <tr><td class="cap">Delete text from an area</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">Leaves images and table rules intact.</td></tr>
+        <tr><td class="cap">Find and replace</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip part">partial</span></td><td class="why">Replaces matches that sit inside one styled run; anything split across styling is reported as skipped rather than mangled.</td></tr>
+        <tr><td class="cap">Text in several columns</td><td class="acro"><span class="chip part">partial</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">Neither reflows cleanly between columns; PDF Studio does not attempt it.</td></tr>
+        <tr><td class="cap">Rotated or vertical text</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">Refused with a message rather than mangled.</td></tr>
+        <tr><td class="cap">Spell check</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why"></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Pages and document assembly</h2>
+    <div class="scroller"><table>
+      <thead><tr><th>Capability</th><th class="c-acrobat">Acrobat&nbsp;Pro</th><th class="c-studio">PDF&nbsp;Studio</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td class="cap">Rotate, insert, delete, duplicate, reorder</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why"></td></tr>
+        <tr><td class="cap">Crop</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">One page at a time; Acrobat can apply a crop across a range.</td></tr>
+        <tr><td class="cap">Extract pages</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">Opens them in a new tab, optionally deletes them from the original.</td></tr>
+        <tr><td class="cap">Merge files</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">From disk, or straight from another open tab.</td></tr>
+        <tr><td class="cap">Split</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">By page count or by ranges.</td></tr>
+        <tr><td class="cap">Page numbers, headers, footers</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why"></td></tr>
+        <tr><td class="cap">Watermark and background</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">Text or image watermark; solid background colour.</td></tr>
+        <tr><td class="cap">Undo history</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">25 steps.</td></tr>
+        <tr><td class="cap">Bates numbering</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">Legal discovery numbering across a set of files.</td></tr>
+        <tr><td class="cap">Page labels (i, ii, iii&hellip;)</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why"></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Markup and comments</h2>
+    <div class="scroller"><table>
+      <thead><tr><th>Capability</th><th class="c-acrobat">Acrobat&nbsp;Pro</th><th class="c-studio">PDF&nbsp;Studio</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td class="cap">Highlight, underline, strike, squiggly</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">Snap to word boundaries.</td></tr>
+        <tr><td class="cap">Sticky notes</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">Click one on the page to read it; also listed in the Notes panel.</td></tr>
+        <tr><td class="cap">Shapes and arrows</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">Rectangle, ellipse, line, arrow, polygon. Arrows have endpoint grips and a solid head.</td></tr>
+        <tr><td class="cap">Freehand drawing</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why"></td></tr>
+        <tr><td class="cap">Stamps</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip part">partial</span></td><td class="why">14 standard stamps (Approved, Draft, Confidential&hellip;). Custom stamps only by inserting an image.</td></tr>
+        <tr><td class="cap">Edit or move a mark afterwards</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">Select, drag, resize, retype, delete &mdash; until flattened.</td></tr>
+        <tr><td class="cap">Comment replies and threads</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">One comment per mark, no conversation.</td></tr>
+        <tr><td class="cap">Shared review, comment sync</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">Deliberately out of scope &mdash; this is a local tool.</td></tr>
+        <tr><td class="cap">Export comments (FDF/XFDF)</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why"></td></tr>
+        <tr><td class="cap">Measuring tools</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">For drawings and plans.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Signatures</h2>
+    <p class="note">PDF Studio does the &ldquo;paste my signature and lock it&rdquo; workflow.
+      Cryptographic signing was deliberately left out.</p>
+    <div class="scroller"><table>
+      <thead><tr><th>Capability</th><th class="c-acrobat">Acrobat&nbsp;Pro</th><th class="c-studio">PDF&nbsp;Studio</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td class="cap">Saved signature per person</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">White paper background removed automatically and cropped to the ink.</td></tr>
+        <tr><td class="cap">Place, move, resize, then lock</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">Stays adjustable until flattened, after which it is part of the page.</td></tr>
+        <tr><td class="cap">Date beside the signature</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why"></td></tr>
+        <tr><td class="cap">Draw or type a signature</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">Deliberately skipped; an image is used instead.</td></tr>
+        <tr><td class="cap">Certificate-based digital signature</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">Deliberately skipped. Matters if a counterparty requires a verifiable signature.</td></tr>
+        <tr><td class="cap">Validate someone else&rsquo;s signature</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">Use Reader or Acrobat to check a signed document you receive.</td></tr>
+        <tr><td class="cap">Send for e-signature</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">A hosted service, not a local feature.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Forms</h2>
+    <div class="scroller"><table>
+      <thead><tr><th>Capability</th><th class="c-acrobat">Acrobat&nbsp;Pro</th><th class="c-studio">PDF&nbsp;Studio</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td class="cap">Fill an existing form</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why"></td></tr>
+        <tr><td class="cap">Create fields</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip part">partial</span></td><td class="why">Text, checkbox, dropdown and list. No radio buttons, buttons or signature fields.</td></tr>
+        <tr><td class="cap">Export and re-import data</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">CSV, so it opens in Excel.</td></tr>
+        <tr><td class="cap">Flatten a filled form</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why"></td></tr>
+        <tr><td class="cap">Detect fields on a scanned form</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">Fields must be drawn by hand.</td></tr>
+        <tr><td class="cap">Calculations, validation, scripting</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">No JavaScript in documents.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Security and redaction</h2>
+    <div class="scroller"><table>
+      <thead><tr><th>Capability</th><th class="c-acrobat">Acrobat&nbsp;Pro</th><th class="c-studio">PDF&nbsp;Studio</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td class="cap">Password to open</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">AES-256. Protected files prompt on open and keep their password when saved.</td></tr>
+        <tr><td class="cap">Permissions password</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">Eight permissions controlled individually, including print, copy and edit.</td></tr>
+        <tr><td class="cap">Redaction that truly removes</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">Deletes the underlying text and image data, not a black box over it.</td></tr>
+        <tr><td class="cap">Search and redact every match</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why"></td></tr>
+        <tr><td class="cap">Sanitise hidden data</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip part">partial</span></td><td class="why">Redaction removes content and metadata can be edited, but there is no one-click scrub of all hidden data.</td></tr>
+        <tr><td class="cap">Certificate-based encryption</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">Deliberately skipped.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Converting in and out</h2>
+    <div class="scroller"><table>
+      <thead><tr><th>Capability</th><th class="c-acrobat">Acrobat&nbsp;Pro</th><th class="c-studio">PDF&nbsp;Studio</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td class="cap">PDF to Word</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">Layout preserving. Complex pages need tidying in Word either way.</td></tr>
+        <tr><td class="cap">PDF to Excel</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip part">partial</span></td><td class="why">Exports tables it can detect; falls back to page text when it finds no grid.</td></tr>
+        <tr><td class="cap">PDF to PowerPoint</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip part">partial</span></td><td class="why">Editable text boxes, or exact page pictures. Layout is approximate.</td></tr>
+        <tr><td class="cap">PDF to images or plain text</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">PNG or JPG at a chosen resolution.</td></tr>
+        <tr><td class="cap">Word, Excel, PowerPoint to PDF</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">Uses Office on the PC for fidelity, or LibreOffice. Needs one of them installed.</td></tr>
+        <tr><td class="cap">Images to PDF</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why"></td></tr>
+        <tr><td class="cap">Reduce file size</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">Three levels; downsamples images and subsets fonts.</td></tr>
+        <tr><td class="cap">Web pages to PDF</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why"></td></tr>
+        <tr><td class="cap">PDF/A and PDF/X archiving</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">Matters for long-term archiving and commercial print.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Scanning and OCR</h2>
+    <div class="scroller"><table>
+      <thead><tr><th>Capability</th><th class="c-acrobat">Acrobat&nbsp;Pro</th><th class="c-studio">PDF&nbsp;Studio</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td class="cap">Make a scan searchable</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">Engine is built in &mdash; nothing to install. The page keeps its original pixels and gains an invisible text layer.</td></tr>
+        <tr><td class="cap">Languages</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip part">partial</span></td><td class="why">English. Acrobat ships dozens.</td></tr>
+        <tr><td class="cap">Scan straight from a scanner</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">Scan with the maker&rsquo;s software, then open the file.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Production and workflow</h2>
+    <div class="scroller"><table>
+      <thead><tr><th>Capability</th><th class="c-acrobat">Acrobat&nbsp;Pro</th><th class="c-studio">PDF&nbsp;Studio</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td class="cap">Compare two versions</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">Deliberately skipped. The most plausible candidate to add.</td></tr>
+        <tr><td class="cap">Batch processing</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">Acrobat&rsquo;s Action Wizard runs a recipe over a folder.</td></tr>
+        <tr><td class="cap">Accessibility tagging and checker</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">Deliberately skipped. Needed if documents must meet accessibility rules.</td></tr>
+        <tr><td class="cap">Preflight and print production</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">For commercial printing.</td></tr>
+        <tr><td class="cap">Cloud storage and sync</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">Deliberately skipped &mdash; files stay on the PC and on OneDrive.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Platform and cost</h2>
+    <div class="scroller"><table>
+      <thead><tr><th>Capability</th><th class="c-acrobat">Acrobat&nbsp;Pro</th><th class="c-studio">PDF&nbsp;Studio</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td class="cap">Windows</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">64-bit, with the Edge WebView2 runtime that Windows 10 and 11 already carry.</td></tr>
+        <tr><td class="cap">Mac, iPad, phone, browser</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">Windows only.</td></tr>
+        <tr><td class="cap">Licence cost</td><td class="acro"><span class="chip part">paid</span></td><td class="stud"><span class="chip full">none</span></td><td class="why">Acrobat Pro is a per-user subscription; check current pricing. PDF Studio costs nothing per seat.</td></tr>
+        <tr><td class="cap">Installation</td><td class="acro"><span class="chip part">installer</span></td><td class="stud"><span class="chip full">copy a folder</span></td><td class="why">No installer, no sign-in, no admin rights.</td></tr>
+        <tr><td class="cap">Set as the default PDF app</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">Per Windows account, no admin rights needed.</td></tr>
+        <tr><td class="cap">Signed by a known publisher</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">Unsigned, so Windows SmartScreen warns on first run. Silencing it needs a paid certificate.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <div class="panel">
+    <h3>Left out on purpose</h3>
+    <ul>
+      <li><b>Certificate-based signing, validation and e-signature sending</b> &mdash; the requirement was to paste a signature image and lock it, not to issue verifiable signatures.</li>
+      <li><b>Accessibility tagging</b> and <b>cloud collaboration</b> &mdash; ruled out at the start.</li>
+      <li><b>Draw-a-signature and type-a-signature</b> &mdash; an image covers the need.</li>
+      <li><b>Comparing two PDFs</b> &mdash; skipped, though it is the most likely thing to want next.</li>
+    </ul>
+  </div>
+
+  <div class="panel">
+    <h3>Where Acrobat still earns its keep</h3>
+    <ul>
+      <li>A counterparty needs a <b>verifiable digital signature</b>, or you must check one you have been sent.</li>
+      <li><b>Legal discovery</b> work needing Bates numbering, or documents that must meet <b>accessibility</b> rules.</li>
+      <li><b>Commercial print</b> or <b>PDF/A archiving</b>.</li>
+      <li>Editing on a <b>Mac, iPad or phone</b>, or reviewing with people outside the firm.</li>
+    </ul>
+  </div>
+
+  <footer>
+    Compiled from the shipped build of PDF Studio. Acrobat rows describe
+    Acrobat&nbsp;Pro; several of them &mdash; redaction, comparison, preflight,
+    accessibility, Bates numbering &mdash; are not in Acrobat&nbsp;Standard either.
+  </footer>
+
+</div>
+
+<script>
+  // Count the chips rather than hand-maintaining the tally, so the summary can
+  // never drift from the table beneath it.
+  (function () {
+    const rows = document.querySelectorAll("td.stud .chip");
+    let full = 0, part = 0, none = 0;
+    rows.forEach(function (chip) {
+      if (chip.classList.contains("full")) full++;
+      else if (chip.classList.contains("part")) part++;
+      else none++;
+    });
+    document.getElementById("n-full").textContent = full;
+    document.getElementById("n-part").textContent = part;
+    document.getElementById("n-none").textContent = none;
+  })();
+</script>
