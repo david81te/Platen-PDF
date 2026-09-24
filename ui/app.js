@@ -241,7 +241,7 @@ async function buildOverlay() {
   }
 
 
-  if (S.tool === 'select') {
+  if (SELECTING_TOOLS.includes(S.tool)) {
     S.annots = (await run('annot_list', S.page)) || [];
     S.annots.forEach((a) => {
       const hit = el('div', 'annothit' + (a.id === S.selectedAnnot ? ' on' : ''));
@@ -253,7 +253,13 @@ async function buildOverlay() {
         width: w + 'px', height: h + 'px',
       });
       hit.title = (a.author ? a.author + ': ' : '') + (a.content || a.type);
-      hit.onclick = (e) => { e.stopPropagation(); selectAnnot(a.id, true); };
+        hit.onclick = (e) => {
+          e.stopPropagation();
+          // Leaving the signature tool in hand would mean the next drag
+          // places another one instead of moving this.
+          if (S.tool !== 'select') setTool('select');
+          selectAnnot(a.id, true);
+        };
       ov.appendChild(hit);
     });
     if (S.selectedAnnot) {
@@ -315,7 +321,10 @@ function drawSelection(a) {
   frame.addEventListener('pointerdown', (e) => {
     e.stopPropagation();
     e.preventDefault();
-    frame.setPointerCapture(e.pointerId);
+    // Capture keeps the drag alive if the cursor leaves the frame, but it
+    // throws for a pointer the browser does not consider active -- never let
+    // that stop the drag being set up.
+    try { frame.setPointerCapture(e.pointerId); } catch (err) { /* non-fatal */ }
     drag = {
       handle: e.target.dataset.h || null,
       x: e.clientX, y: e.clientY,
@@ -504,6 +513,7 @@ let drag = null;
 
 $('overlay').addEventListener('pointerdown', (ev) => {
   if (!S.info || S.tool === 'select' || S.tool === 'text') return;
+  if (ev.target.closest('.annothit, .selframe, .handle, .bubble')) return;
   if (ev.target.classList.contains('hit')) return;
   const p = localPoint(ev);
   $('overlay').setPointerCapture(ev.pointerId);
@@ -840,6 +850,9 @@ const TONES = {
   'White': [1, 1, 1],
 };
 
+// Tools that leave existing objects clickable rather than drawing over them.
+const SELECTING_TOOLS = ['select', 'sign'];
+
 const SWATCHES = [
   [1, 0.92, 0.23], [0.45, 0.85, 0.4], [0.4, 0.75, 1], [1, 0.55, 0.75],
   [0.85, 0.1, 0.1], [0.1, 0.1, 0.1], [0.1, 0.45, 0.9], [0.55, 0.3, 0.8],
@@ -867,7 +880,11 @@ function drawInspector() {
         .map((s) => '<option' + (s === S.stamp ? ' selected' : '') + '>' + s + '</option>').join('') +
       '</select></div>';
   } else if (t === 'sign') {
-    html += '<p class="hint">Choose a signature in the <b>Signatures</b> panel, then drag a box on the page.</p>';
+    html += '<p class="hint">Choose a signature in the <b>Signatures</b> panel, ' +
+      'then drag a box on the page.</p>' +
+      '<p class="hint">Already placed one? Click it to get a frame — drag to ' +
+      'move, corners to resize. Lock it for good with ' +
+      '<b>Protect ▸ Flatten annotations</b>.</p>';
   } else if (t === 'text') {
     html += '<p class="hint">Click any text to rewrite that run. Click the <b>¶</b> marker to the left of a paragraph to rewrite the whole paragraph with re-wrapping.</p>';
   } else if (t === 'redact') {

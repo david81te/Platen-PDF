@@ -80,16 +80,11 @@ def main() -> None:
     if missing:
         message = (
             "PDF Studio needs the Microsoft Edge WebView2 runtime, which is "
-            "not installed on this PC.
-
-"
-            "It is free from Microsoft and installs in under a minute:
-"
+            "not installed on this PC.\n\n"
+            "It is free from Microsoft and installs in under a minute:\n"
             + shell_integration.WEBVIEW2_DOWNLOAD +
-            "
-
-Download the Evergreen Standalone Installer, run it, then "
-            "start PDF Studio again.")
+            "\n\nDownload the Evergreen Standalone Installer, run it, "
+            "then start PDF Studio again.")
         try:
             ctypes.windll.user32.MessageBoxW(None, message, APP_NAME, 0x10)
         except Exception:

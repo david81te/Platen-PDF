@@ -21,6 +21,11 @@ if ($Portable) {
     $out = "dist\PDFStudio\PDFStudio.exe"
 }
 
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "PyInstaller failed (exit $LASTEXITCODE). The previous build in dist\ is now STALE." -ForegroundColor Red
+    exit 1
+}
+
 if (Test-Path $out) {
     $mb = [math]::Round((Get-Item $out).Length / 1MB, 1)
     Write-Host "Built $out ($mb MB)" -ForegroundColor Green

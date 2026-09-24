@@ -249,6 +249,10 @@ bridge.
 
 ## Notes for future work
 
+- **A failed PyInstaller run leaves the previous `dist/` in place.** It is
+  easy to keep testing a stale executable and conclude a fix did not work,
+  so `build.ps1` reports a failed build loudly and stops. Check the
+  timestamp on the exe if something you just changed seems absent.
 Behaviour that looks like a bug but is deliberate, and traps worth knowing:
 
 - **Never read `doc.needs_pass` after authenticating.** It re-locks the
