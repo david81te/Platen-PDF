@@ -170,7 +170,9 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
 .sig-card img { height: 30px; max-width: 110px; object-fit: contain; background: #fff; border-radius: 4px; padding: 2px; }
 .sig-card .n { font-size: 12px; }
 .sig-card .r { font-size: 11px; color: var(--muted); }
-.sig-card .x { margin-left: auto; color: var(--muted); padding: 2px 6px; }
+.sig-card .rn { margin-left: auto; color: var(--muted); padding: 2px 6px; }
+.sig-card .x { color: var(--muted); padding: 2px 6px; }
+.sig-card .rn:hover, .sig-card .x:hover { color: var(--ink); background: #ffffff14; border-radius: 4px; }
 .sig-actions { margin-bottom: 9px; }
 .sig-actions button { width: 100%; }
 
@@ -369,3 +371,41 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
 .cmp-state.added   { color: #46c08a; }
 .cmp-state.removed { color: #ef8d87; }
 .cmp-state.changed { color: #e0b45c; }
+
+/* ---- form fields ---- */
+.fieldhit {
+  position: absolute; cursor: text; border-radius: 2px;
+  background: #4c8dff14; outline: 1px dashed #4c8dff66;
+}
+.fieldhit:hover { background: #4c8dff2e; outline-style: solid; }
+.fieldhit.on { outline: 2px solid var(--accent); background: #4c8dff26; }
+.fieldhit .tick {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: 13px; color: var(--accent); font-weight: 700;
+}
+
+.frow { padding: 6px 7px; border-radius: 6px; margin-bottom: 5px; border: 1px solid var(--line); }
+.frow.on { border-color: var(--accent); background: #4c8dff10; }
+.frow .n { font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; gap: 6px; }
+.frow .n em { font-style: normal; text-transform: uppercase; letter-spacing: .4px; font-size: 10px; }
+.frow input, .frow select { margin-top: 4px; font-size: 12px; padding: 3px 6px; }
+.frow .chk { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 12px; }
+.frow .chk input { width: auto; margin: 0; }
+
+/* ---- links list ---- */
+.pane-sub {
+  font: 600 10.5px/1 "Segoe UI", system-ui, sans-serif;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--muted);
+  margin: 14px 0 7px; padding-top: 10px; border-top: 1px solid var(--line);
+}
+.lrow { display: flex; gap: 6px; align-items: center; padding: 5px 7px;
+        border-radius: 6px; font-size: 12px; }
+.lrow:hover { background: var(--panel-2); }
+.lrow .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lrow .x { color: var(--muted); padding: 0 5px; cursor: pointer; border-radius: 4px; }
+.lrow .x:hover { color: var(--danger); background: #ffffff14; }
+
+/* ---- dragging a thumbnail to reorder ---- */
+.thumb.dragging { opacity: .45; }
+.thumb.drop-before { box-shadow: 0 -3px 0 var(--accent); }
+.thumb.drop-after  { box-shadow: 0 3px 0 var(--accent); }

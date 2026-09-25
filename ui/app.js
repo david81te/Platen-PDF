@@ -14,6 +14,7 @@ const S = {
   stroke: [0.85, 0.1, 0.1],
   lineWidth: 2,
   stamp: 'approved',
+  stampColor: [0.1, 0.5, 0.15],
   fontSize: 11,
   redactions: [],
   editing: null,
@@ -23,6 +24,8 @@ const S = {
   selectedAnnot: null,
   thumbLoaded: 0,
   thumbBusy: false,
+  fields: [],
+  selectedField: null,
   compare: null,     // last comparison result
   comparePage: -1,
   findQuery: '',
@@ -303,6 +306,26 @@ async function buildOverlay() {
     S.annots = [];
   }
 
+  if (SELECTING_TOOLS.includes(S.tool) || S.tool === 'field') {
+    S.fields = (await run('form_list', S.page)) || [];
+    S.fields.forEach((f) => {
+      const hit = el('div', 'fieldhit' + (f.name === S.selectedField ? ' on' : ''));
+      Object.assign(hit.style, {
+        left: toPx(f.rect[0]) + 'px', top: toPx(f.rect[1]) + 'px',
+        width: Math.max(12, toPx(f.rect[2] - f.rect[0])) + 'px',
+        height: Math.max(12, toPx(f.rect[3] - f.rect[1])) + 'px',
+      });
+      hit.title = f.name + ' (' + f.kind + ')' + (f.readonly ? ' - read only' : '');
+      if (f.kind === 'checkbox' && fieldIsTicked(f)) {
+        hit.innerHTML = '<span class="tick">&#10003;</span>';
+      }
+      hit.onclick = (e) => { e.stopPropagation(); editField(f); };
+      ov.appendChild(hit);
+    });
+  } else {
+    S.fields = [];
+  }
+
   if (S.compare) {
     const forPage = S.compare.pages.find((p) => p.right === S.page);
     if (forPage) {
@@ -340,6 +363,106 @@ async function buildOverlay() {
     });
     ov.appendChild(mark);
   });
+}
+
+/* ---- filling in a form ---- */
+
+function fieldIsTicked(field) {
+  const v = field.value;
+  return v === true || (typeof v === 'string' && v !== '' && v.toLowerCase() !== 'off');
+}
+
+async function setField(field, value) {
+  const r = await run('form_set', S.page, field.name, value);
+  if (!r) return;
+  await refresh(false);
+  if (S.tool === 'field') drawInspector();
+}
+
+function editField(field) {
+  S.selectedField = field.name;
+  if (field.readonly) {
+    toast('That field is read only.', 'err');
+    return;
+  }
+  if (field.kind === 'checkbox') {
+    setField(field, !fieldIsTicked(field));      // a tick needs no dialog
+    return;
+  }
+  if (field.kind === 'dropdown' || field.kind === 'listbox') {
+    modal('Choose a value',
+      '<div class="field"><label>' + escapeHtml(field.name) + '</label>' +
+      '<select name="v">' + (field.options || []).map((o) =>
+        '<option' + (o === field.value ? ' selected' : '') + '>' +
+        escapeHtml(o) + '</option>').join('') + '</select></div>',
+      async (v) => setField(field, v.v), 'Set');
+    return;
+  }
+  modal('Fill in the field',
+    '<div class="field"><label>' + escapeHtml(field.name) + '</label>' +
+    '<input name="v" value="' + escapeHtml(field.value || '') + '"></div>' +
+    (field.required ? '<p class="hint">This field is marked as required.</p>' : ''),
+    async (v) => setField(field, v.v), 'Set');
+}
+
+function formInspector() {
+  const fields = S.fields || [];
+  let html = '<h3>form fields</h3>';
+  if (!fields.length) {
+    return html + '<p class="hint">No fields on this page. Drag a box to add one.</p>';
+  }
+  fields.forEach((f, i) => {
+    const id = 'ff' + i;
+    let control;
+    if (f.kind === 'checkbox') {
+      control = '<label class="chk"><input type="checkbox" id="' + id + '"' +
+        (fieldIsTicked(f) ? ' checked' : '') + (f.readonly ? ' disabled' : '') +
+        '> ticked</label>';
+    } else if (f.kind === 'dropdown' || f.kind === 'listbox') {
+      control = '<select id="' + id + '"' + (f.readonly ? ' disabled' : '') + '>' +
+        (f.options || []).map((o) => '<option' + (o === f.value ? ' selected' : '') +
+          '>' + escapeHtml(o) + '</option>').join('') + '</select>';
+    } else {
+      control = '<input id="' + id + '" value="' + escapeHtml(f.value || '') + '"' +
+        (f.readonly ? ' disabled' : '') + '>';
+    }
+    html += '<div class="frow' + (f.name === S.selectedField ? ' on' : '') + '">' +
+      '<div class="n"><span>' + escapeHtml(f.name) + '</span><em>' + f.kind +
+      (f.required ? ' &middot; required' : '') + '</em></div>' + control + '</div>';
+  });
+  html += '<div class="field" style="margin-top:12px">' +
+    '<button id="form-export" style="width:100%">Export values to CSV...</button></div>' +
+    '<div class="field"><button id="form-import" style="width:100%">Import values from CSV...</button></div>' +
+    '<div class="field"><button id="form-flatten" style="width:100%">Lock the filled values in</button></div>';
+  return html;
+}
+
+function wireFormInspector() {
+  (S.fields || []).forEach((f, i) => {
+    const input = $('ff' + i);
+    if (!input || f.readonly) return;
+    input.onchange = () => setField(f, f.kind === 'checkbox' ? input.checked : input.value);
+  });
+  const ex = $('form-export');
+  if (ex) ex.onclick = async () => {
+    const r = await busyRun('Exporting...', 'form_export');
+    if (r && r.path) toast('Saved ' + baseName(r.path) + ' with ' + r.fields + ' field(s).', 'ok');
+  };
+  const im = $('form-import');
+  if (im) im.onclick = async () => {
+    const r = await busyRun('Importing...', 'form_import');
+    if (!r || r.cancelled) return;
+    toast('Filled ' + r.updated + ' field(s)' +
+      (r.missing && r.missing.length ? ', ' + r.missing.length + ' not found' : '') + '.', 'ok');
+    await refresh(false);
+    drawInspector();
+  };
+  const fl = $('form-flatten');
+  if (fl) fl.onclick = async () => {
+    if (!confirm('Lock the values in? The fields stop being editable.')) return;
+    const r = await busyRun('Flattening...', 'form_flatten');
+    if (r) { toast('Form locked.', 'ok'); await refresh(); }
+  };
 }
 
 /* ---- moving and resizing an annotation ---- */
@@ -697,7 +820,7 @@ async function applyTool(rect) {
       await run('annot_shape', S.page, S.tool, pts, S.stroke, null, S.lineWidth); break;
     }
     case 'stamp':
-      await run('annot_stamp', S.page, rect, S.stamp); break;
+      await run('annot_stamp', S.page, rect, S.stamp, S.stampColor); break;
     case 'sign': {
       if (!S.sig) { toast('Pick a signature in the Signatures panel first.', 'err'); return; }
       const placed = await run('sig_place', S.page, S.sig, rect);
@@ -833,6 +956,8 @@ function resetPerDocumentState() {
   S.selectedAnnot = null;
   S.compare = null;
   S.comparePage = -1;
+  S.fields = [];
+  S.selectedField = null;
   S.sizes = null;                      // zoom mode is a preference, so it stays
   cancelEdit();
   closeBubble();
@@ -881,6 +1006,7 @@ async function loadThumbs() {
     slot.style.height = Math.round(170 * (size.height / size.width)) + 'px';
     slot.innerHTML = '<span>' + (i + 1) + '</span>';
     slot.onclick = () => gotoPage(i);
+    wireThumbDrag(slot);
     pane.appendChild(slot);
   }
   markThumb();
@@ -930,6 +1056,60 @@ function watchThumbs() {
   });
 }
 
+// ---- reordering pages by dragging a thumbnail ----
+let dragPage = null;
+
+function wireThumbDrag(slot) {
+  slot.draggable = true;
+  slot.addEventListener('dragstart', (e) => {
+    dragPage = parseInt(slot.dataset.page, 10);
+    slot.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    try { e.dataTransfer.setData('text/plain', String(dragPage)); } catch (err) { /* ignore */ }
+  });
+  slot.addEventListener('dragend', () => {
+    slot.classList.remove('dragging');
+    document.querySelectorAll('.thumb').forEach((t) =>
+      t.classList.remove('drop-before', 'drop-after'));
+    dragPage = null;
+  });
+  slot.addEventListener('dragover', (e) => {
+    if (dragPage === null) return;
+    e.preventDefault();
+    const box = slot.getBoundingClientRect();
+    const after = (e.clientY - box.top) > box.height / 2;
+    slot.classList.toggle('drop-after', after);
+    slot.classList.toggle('drop-before', !after);
+  });
+  slot.addEventListener('dragleave', () =>
+    slot.classList.remove('drop-before', 'drop-after'));
+  slot.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    if (dragPage === null) return;
+    const box = slot.getBoundingClientRect();
+    const after = (e.clientY - box.top) > box.height / 2;
+    let target = parseInt(slot.dataset.page, 10) + (after ? 1 : 0);
+    const from = dragPage;
+    dragPage = null;
+    document.querySelectorAll('.thumb').forEach((t) =>
+      t.classList.remove('drop-before', 'drop-after'));
+    if (target === from || target === from + 1) return;
+
+    // Build the whole new order and send it once, so the result is exactly
+    // what was dropped rather than depending on insert-before semantics.
+    const order = [];
+    for (let i = 0; i < S.info.page_count; i++) if (i !== from) order.push(i);
+    if (target > from) target -= 1;
+    order.splice(target, 0, from);
+    const r = await run('page_reorder', order);
+    if (!r) return;
+    S.page = order.indexOf(from);
+    await refresh();
+    toast('Moved page ' + (from + 1) + ' to position ' + (S.page + 1) + '.', 'ok');
+  });
+}
+
+
 function markThumb() {
   document.querySelectorAll('.thumb').forEach((n) => {
     n.classList.toggle('on', parseInt(n.dataset.page, 10) === S.page);
@@ -962,6 +1142,7 @@ async function loadComments() {
     pane.innerHTML = '<p class="hint">Nothing marked up on this page yet. ' +
       'Use the note, highlight, shape or stamp tools, then click anything on ' +
       'the page to read it.</p>';
+    await loadLinks();
     return;
   }
   items.forEach((a) => {
@@ -980,7 +1161,32 @@ async function loadComments() {
     };
     pane.appendChild(row);
   });
+  await loadLinks();
 }
+
+async function loadLinks() {
+  const pane = $('pane-comments');
+  const links = (await run('link_list', S.page)) || [];
+  if (!links.length) return;
+  const head = el('div', 'pane-sub', 'Links on this page');
+  pane.appendChild(head);
+  links.forEach((l) => {
+    const row = el('div', 'lrow');
+    const target = l.uri ? l.uri : 'Go to page ' + (l.page + 1);
+    row.innerHTML = '<span class="t" title="' + escapeHtml(target) + '">' +
+      escapeHtml(target) + '</span><span class="x" title="Remove">&#10005;</span>';
+    row.querySelector('.t').onclick = () => {
+      if (!l.uri && l.page >= 0) gotoPage(l.page);
+    };
+    row.querySelector('.x').onclick = async () => {
+      await run('link_delete', S.page, l.index);
+      await refresh(false);
+      loadComments();
+    };
+    pane.appendChild(row);
+  });
+}
+
 
 async function loadSigs() {
   const list = $('sig-list');
@@ -994,12 +1200,26 @@ async function loadSigs() {
     const card = el('div', 'sig-card' + (S.sig === s.id ? ' on' : ''));
     card.innerHTML = '<img src="' + s.image + '"><div><div class="n">' +
       escapeHtml(s.name) + '</div><div class="r">' + escapeHtml(s.role || '') +
-      '</div></div><button class="x" title="Delete">✕</button>';
+      '</div></div><button class="rn" title="Rename">&#9998;</button>' +
+      '<button class="x" title="Delete">&#10005;</button>';
     card.onclick = (e) => {
-      if (e.target.classList.contains('x')) return;
+      if (e.target.classList.contains('x') || e.target.classList.contains('rn')) return;
       S.sig = (S.sig === s.id) ? null : s.id;
       loadSigs();
       if (S.sig) { setTool('sign'); toast('Now drag a box where the signature should go.'); }
+    };
+    card.querySelector('.rn').onclick = (e) => {
+      e.stopPropagation();
+      modal('Rename signature',
+        '<div class="field"><label>Name</label><input name="name" value="' +
+        escapeHtml(s.name) + '"></div>' +
+        '<div class="field"><label>Role</label><input name="role" value="' +
+        escapeHtml(s.role || '') + '"></div>',
+        async (v) => {
+          if (!v.name.trim()) { toast('Give it a name.', 'err'); return; }
+          await run('sig_rename', s.id, v.name, v.role);
+          loadSigs();
+        }, 'Save');
     };
     card.querySelector('.x').onclick = async (e) => {
       e.stopPropagation();
@@ -1025,9 +1245,21 @@ const TONES = {
 // Tools that leave existing objects clickable rather than drawing over them.
 const SELECTING_TOOLS = ['select', 'sign'];
 
+// Every stamp the document format defines, with a readable label.
+const STAMPS = [
+  ['approved', 'Approved'], ['notapproved', 'Not approved'],
+  ['draft', 'Draft'], ['final', 'Final'],
+  ['confidential', 'Confidential'], ['topsecret', 'Top secret'],
+  ['forcomment', 'For comment'], ['forpublicrelease', 'For public release'],
+  ['notforpublicrelease', 'Not for public release'],
+  ['experimental', 'Experimental'], ['expired', 'Expired'],
+  ['sold', 'Sold'], ['asis', 'As is'], ['departmental', 'Departmental'],
+];
+
 const SWATCHES = [
-  [1, 0.92, 0.23], [0.45, 0.85, 0.4], [0.4, 0.75, 1], [1, 0.55, 0.75],
-  [0.85, 0.1, 0.1], [0.1, 0.1, 0.1], [0.1, 0.45, 0.9], [0.55, 0.3, 0.8],
+  [0.85, 0.12, 0.12], [0.90, 0.45, 0.05], [1, 0.82, 0.16], [0.10, 0.55, 0.25],
+  [0.10, 0.45, 0.85], [0.35, 0.28, 0.72], [0.72, 0.25, 0.55], [0.18, 0.20, 0.26],
+  [1, 0.92, 0.23], [0.45, 0.85, 0.40], [0.40, 0.75, 1], [1, 0.55, 0.75],
 ];
 
 function swatchHtml(current) {
@@ -1108,9 +1340,11 @@ function drawInspector() {
       '<div class="field"><label>Line width</label><input id="lw" type="range" min="0.5" max="8" step="0.5" value="' + S.lineWidth + '"></div>';
   } else if (t === 'stamp') {
     html += '<div class="field"><label>Stamp</label><select id="stampsel">' +
-      ['approved', 'draft', 'final', 'confidential', 'expired', 'sold', 'notapproved']
-        .map((s) => '<option' + (s === S.stamp ? ' selected' : '') + '>' + s + '</option>').join('') +
-      '</select></div>';
+      STAMPS.map((s) => '<option value="' + s[0] + '"' +
+        (s[0] === S.stamp ? ' selected' : '') + '>' + s[1] + '</option>').join('') +
+      '</select></div>' +
+      '<div class="field"><label>Colour</label>' + swatchHtml(S.stampColor) + '</div>' +
+      '<p class="hint">Drag a box on the page to place it.</p>';
   } else if (t === 'sign') {
     html += '<p class="hint">Choose a signature in the <b>Signatures</b> panel, ' +
       'then drag a box on the page.</p>' +
@@ -1120,10 +1354,24 @@ function drawInspector() {
   } else if (t === 'text') {
     html += '<p class="hint">Click any text to rewrite that run. Click the <b>¶</b> marker to the left of a paragraph to rewrite the whole paragraph with re-wrapping.</p>';
   } else if (t === 'redact') {
-    html += '<p class="hint">Drag over anything to mark it. Marks are previewed in black; choose <b>Protect ▸ Apply redactions</b> to delete the underlying content permanently.</p>' +
-      '<button id="redact-now" class="danger" style="width:100%">Apply redactions</button>';
+    html += '<p class="hint">Drag over anything to mark it, or mark every ' +
+      'occurrence of a word below. Marks are only a preview until they are applied.</p>' +
+      '<div class="field"><label>Mark every occurrence of</label>' +
+      '<input id="redact-find" placeholder="e.g. an account number"></div>' +
+      '<div class="field"><button id="redact-all" style="width:100%">Mark all matches</button></div>' +
+      '<div class="field"><button id="redact-undo" style="width:100%">Clear all marks</button></div>' +
+      '<button id="redact-now" class="danger" style="width:100%">Apply redactions — permanent</button>';
+  } else if (t === 'field') {
+    body.innerHTML = formInspector();
+    wireFormInspector();
+    return;
   } else if (t === 'select') {
-    html += '<p class="hint">Pick a tool from the toolbar. Use <b>T</b> to edit existing text in place.</p>';
+    html += '<p class="hint">Pick a tool from the toolbar. Use <b>T</b> to edit ' +
+      'existing text in place.</p>' +
+      (S.fields && S.fields.length
+        ? '<p class="hint">This page has ' + S.fields.length + ' form field(s). ' +
+          'Click one to fill it in.</p>'
+        : '');
   } else {
     html += '<p class="hint">Drag on the page to place.</p>';
   }
@@ -1133,6 +1381,7 @@ function drawInspector() {
     sw.onclick = () => {
       const c = SWATCHES[parseInt(sw.dataset.i, 10)];
       if (['highlight', 'underline', 'strikeout'].includes(S.tool)) S.color = c;
+      else if (S.tool === 'stamp') S.stampColor = c;
       else S.stroke = c;
       drawInspector();
     };
@@ -1140,6 +1389,21 @@ function drawInspector() {
   const lw = $('lw'); if (lw) lw.oninput = () => { S.lineWidth = parseFloat(lw.value); };
   const ss = $('stampsel'); if (ss) ss.onchange = () => { S.stamp = ss.value; };
   const rn = $('redact-now'); if (rn) rn.onclick = applyRedactions;
+  const ra = $('redact-all');
+  if (ra) ra.onclick = async () => {
+    const needle = $('redact-find').value.trim();
+    if (!needle) { toast('Type the text to mark first.', 'err'); return; }
+    const r = await busyRun('Marking…', 'redact_search', needle);
+    if (!r) return;
+    if (!r.marked) { toast('No matches found.', 'err'); return; }
+    toast('Marked ' + r.marked + ' occurrence(s). Apply when ready.', 'ok');
+    await refresh(false);
+  };
+  const ru = $('redact-undo');
+  if (ru) ru.onclick = async () => {
+    const r = await run('redact_clear');
+    if (r) { S.redactions = []; toast('Marks cleared.'); await refresh(false); }
+  };
 }
 
 /* ---------- navigation ---------- */
