@@ -11,8 +11,8 @@ import traceback
 
 import pymupdf as fitz
 
-from . import (annots, convert, decorate, forms, pages, security,
-               shell_integration, signatures, textedit)
+from . import (annots, compare as comparison, convert, decorate, forms,
+               pages, security, shell_integration, signatures, textedit)
 from .session import NoDocument, PdfError, Session
 
 PDF_TYPES = ("PDF files (*.pdf)",)
@@ -57,6 +57,7 @@ class Api:
         self._active = 0
         self._window = None
         self._startup_path = None
+        self._comparison = None      # last comparison result, kept for the UI
 
     def attach_window(self, window):
         self._window = window
@@ -209,6 +210,68 @@ class Api:
     @endpoint
     def save_all_tabs(self):
         return self.save_all()
+
+    # ---- comparing two documents ---------------------------------------
+
+    def _run_comparison(self, older, newer, visual, label):
+        result = comparison.compare(older, newer, visual=bool(visual))
+        result["against"] = label
+        self._comparison = result
+        return result
+
+    @endpoint
+    def compare_tab(self, other_index, visual=True, older="other"):
+        """Compare the front document with another open tab."""
+        other_index = int(other_index)
+        if other_index < 0 or other_index >= len(self._docs):
+            raise PdfError("That tab is no longer open.")
+        if other_index == self._active:
+            raise PdfError("Choose a different tab to compare against.")
+        other = self._docs[other_index]
+        current = self._session.require()
+        name = other.info().get("name") or "the other tab"
+        if older == "other":
+            return self._run_comparison(other.require(), current, visual, name)
+        return self._run_comparison(current, other.require(), visual, name)
+
+    @endpoint
+    def compare_file(self, visual=True, older="other"):
+        """Compare the front document with a file on disk."""
+        chosen = self._ask_open(types=PDF_TYPES)
+        if not chosen:
+            return {"cancelled": True}
+        other = fitz.open(chosen[0])
+        if other.needs_pass:
+            other.close()
+            raise PdfError("That file is password protected. Open it in a tab first.")
+        try:
+            current = self._session.require()
+            name = os.path.basename(chosen[0])
+            if older == "other":
+                return self._run_comparison(other, current, visual, name)
+            return self._run_comparison(current, other, visual, name)
+        finally:
+            other.close()
+
+    @endpoint
+    def compare_result(self):
+        return self._comparison or {"pages": [], "summary": None}
+
+    @endpoint
+    def compare_clear(self):
+        self._comparison = None
+        return {"ok": True}
+
+    @endpoint
+    def compare_markup(self):
+        """Highlight the differences on the front document."""
+        if not self._comparison:
+            raise PdfError("Run a comparison first.")
+        doc = self._session.require()
+        self._session.checkpoint()
+        result = comparison.mark_up(doc, self._comparison)
+        self._session.touch()
+        return result
 
     @endpoint
     def tab_list(self):

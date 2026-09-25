@@ -143,6 +143,13 @@ per-permission control. Password-protected files prompt for the password on
 open and keep their protection when saved. True redaction that deletes the
 underlying text and image data rather than drawing a black box over it.
 
+**Compare two documents** — aligns pages by similarity first, so inserting a
+page does not report every page after it as rewritten. Then a word-level diff
+with before-and-after text, and a coarse pixel pass that catches changes the
+words cannot see, like a moved logo or redrawn chart. Differences are listed
+and drawn on the page, and can be marked into the document as highlights and
+notes.
+
 **Search** — full-document find with a results list, surrounding-line context,
 match highlighting, match-case, next/previous navigation, and every hit drawn
 on the page. `Ctrl+F`.
@@ -275,6 +282,13 @@ bridge.
 
 ## Notes for future work
 
+- **Search builds a line index per page, once.** Asking MuPDF for the text
+  around each hit instead took 10 seconds on a 160-page document, which is
+  unusable for a box that searches as you type. The same applies to the
+  match-case check, which needs the words rather than the hit rectangle.
+- **Thumbnails are placeholders until they scroll into view.** Rendering
+  every page up front was the other thing that made opening a long document
+  feel slow.
 - **A failed PyInstaller run leaves the previous `dist/` in place.** It is
   easy to keep testing a stale executable and conclude a fix did not work.
   `build.ps1` now checks the exit code and stops loudly; if a change seems

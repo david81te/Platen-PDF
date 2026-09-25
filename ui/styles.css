@@ -150,7 +150,12 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
 #pagenum { width: 42px; text-align: center; padding: 2px; display: inline-block; }
 
 /* ---- thumbnails ---- */
-.thumb { position: relative; margin-bottom: 9px; cursor: pointer; border: 2px solid transparent; border-radius: 4px; }
+.thumb {
+  position: relative; margin-bottom: 9px; cursor: pointer;
+  border: 2px solid transparent; border-radius: 4px;
+  background: #ffffff0a;
+}
+.thumb:not([data-done]) { border-color: var(--line); }
 .thumb img { width: 100%; display: block; border-radius: 3px; background: #fff; }
 .thumb.on { border-color: var(--accent); }
 .thumb span { position: absolute; right: 4px; bottom: 4px; background: #000b; padding: 0 5px; border-radius: 3px; font-size: 11px; }
@@ -335,3 +340,32 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
   cursor: move; z-index: 46;
 }
 .lineguide { position: absolute; pointer-events: none; z-index: 44; }
+
+/* ---- comparison ---- */
+.diff-add    { position: absolute; background: #3ec98a40; outline: 1px solid #2aa870; border-radius: 2px; pointer-events: none; }
+.diff-del    { position: absolute; background: #f2857f40; outline: 1px solid #d9564f; border-radius: 2px; pointer-events: none; }
+.diff-visual { position: absolute; outline: 1.5px dashed #6d94f5; border-radius: 3px; pointer-events: none; }
+
+.cmp-head { display: flex; flex-direction: column; gap: 3px; margin-bottom: 10px; }
+.cmp-head .against { font-size: 11.5px; color: var(--muted); }
+.cmp-stats { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+.cmp-stats span {
+  font-size: 11px; padding: 2px 7px; border-radius: 999px;
+  background: var(--panel-2); border: 1px solid var(--line);
+}
+.cmp-stats .plus  { color: #46c08a; }
+.cmp-stats .minus { color: #ef8d87; }
+.cmp-row {
+  padding: 6px 7px; border-radius: 6px; cursor: pointer;
+  border-left: 2px solid transparent; margin-bottom: 4px;
+}
+.cmp-row:hover { background: var(--panel-2); }
+.cmp-row.on { background: #4c8dff14; border-left-color: var(--accent); }
+.cmp-row .p { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+.cmp-row .s { font-size: 11.5px; }
+.cmp-row .s del { color: #ef8d87; text-decoration: line-through; }
+.cmp-row .s ins { color: #46c08a; text-decoration: none; }
+.cmp-state { font-size: 10.5px; padding: 1px 6px; border-radius: 4px; background: var(--panel-2); }
+.cmp-state.added   { color: #46c08a; }
+.cmp-state.removed { color: #ef8d87; }
+.cmp-state.changed { color: #e0b45c; }

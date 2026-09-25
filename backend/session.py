@@ -243,9 +243,28 @@ class Session:
 
     # ---- search & outline ----------------------------------------------
 
+    @staticmethod
+    def _line_index(page: fitz.Page) -> list[tuple[fitz.Rect, str]]:
+        """Every text line on a page with its box, extracted in one pass."""
+        lines = []
+        for block in page.get_text("dict").get("blocks", []):
+            if block.get("type") != 0:
+                continue
+            for line in block.get("lines", []):
+                text = "".join(s.get("text", "") for s in line.get("spans", []))
+                if text.strip():
+                    lines.append((fitz.Rect(line["bbox"]), " ".join(text.split())))
+        return lines
+
     def search(self, query: str, match_case: bool = False,
                limit: int = 800) -> dict:
-        """Find every occurrence, with the line it sits on as context."""
+        """Find every occurrence, with the line it sits on as context.
+
+        The context comes from a per-page line index built once, rather than a
+        text extraction per hit: on a long document with thousands of matches
+        the per-hit version took seconds, which is far too slow for a box that
+        searches as you type.
+        """
         doc = self.require()
         query = query or ""
         if not query.strip():
@@ -254,14 +273,29 @@ class Session:
         hits = []
         for index in range(doc.page_count):
             page = doc[index]
-            for rect in page.search_for(query):
+            found = page.search_for(query)
+            if not found:
+                continue
+            lines = self._line_index(page)
+            # search_for ignores case. Confirming the casing needs the real
+            # words, so pull them once per page rather than once per hit.
+            words = None
+            if match_case:
+                words = [(fitz.Rect(w[0], w[1], w[2], w[3]), w[4])
+                         for w in page.get_text("words")]
+            for rect in found:
                 if match_case:
-                    # search_for ignores case, so confirm the real casing.
-                    if query not in (page.get_textbox(rect) or ""):
+                    covering = " ".join(
+                        text for box, text in words
+                        if box.intersects(rect) and (box & rect).get_area() > 0)
+                    if query not in covering:
                         continue
-                line = fitz.Rect(page.rect.x0, rect.y0 - 1,
-                                 page.rect.x1, rect.y1 + 1)
-                snippet = " ".join((page.get_textbox(line) or "").split())
+                middle = (rect.y0 + rect.y1) / 2
+                snippet = ""
+                for box, text in lines:
+                    if box.y0 - 1 <= middle <= box.y1 + 1 and box.x0 - 2 <= rect.x0:
+                        snippet = text
+                        break
                 hits.append({
                     "page": index,
                     "rect": [rect.x0, rect.y0, rect.x1, rect.y1],

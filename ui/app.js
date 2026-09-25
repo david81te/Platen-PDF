@@ -21,6 +21,10 @@ const S = {
   hitIndex: -1,
   annots: [],
   selectedAnnot: null,
+  thumbLoaded: 0,
+  thumbBusy: false,
+  compare: null,     // last comparison result
+  comparePage: -1,
   findQuery: '',
 };
 
@@ -297,6 +301,23 @@ async function buildOverlay() {
     }
   } else {
     S.annots = [];
+  }
+
+  if (S.compare) {
+    const forPage = S.compare.pages.find((p) => p.right === S.page);
+    if (forPage) {
+      const paint = (rects, cls) => (rects || []).forEach((r) => {
+        const mark = el('div', cls);
+        Object.assign(mark.style, {
+          left: toPx(r[0]) - 1 + 'px', top: toPx(r[1]) - 1 + 'px',
+          width: toPx(r[2] - r[0]) + 2 + 'px',
+          height: toPx(r[3] - r[1]) + 2 + 'px',
+        });
+        ov.appendChild(mark);
+      });
+      paint(forPage.visual_rects, 'diff-visual');
+      paint(forPage.added_rects, 'diff-add');
+    }
   }
 
   S.hits.forEach((h, i) => {
@@ -810,6 +831,8 @@ function resetPerDocumentState() {
   S.redactions = [];
   S.annots = [];
   S.selectedAnnot = null;
+  S.compare = null;
+  S.comparePage = -1;
   S.sizes = null;                      // zoom mode is a preference, so it stays
   cancelEdit();
   closeBubble();
@@ -839,20 +862,72 @@ async function closeTab(index) {
 
 /* ---------- sidebar panes ---------- */
 
+const THUMB_BATCH = 16;
+
 async function loadThumbs() {
   if (!S.info) return;
   const pane = $('pane-thumbs');
-  const data = await run('thumbs', 0, S.info.page_count, 170);
-  if (!data) return;
   pane.innerHTML = '';
-  data.forEach((t) => {
-    const node = el('div', 'thumb');
-    node.dataset.page = t.index;
-    node.innerHTML = '<img src="' + t.image + '"><span>' + (t.index + 1) + '</span>';
-    node.onclick = () => gotoPage(t.index);
-    pane.appendChild(node);
-  });
+  S.thumbLoaded = 0;
+
+  // Placeholders first, so the strip has its full height immediately and the
+  // scrollbar does not jump as pictures arrive. Rendering every page up front
+  // is what made opening a long document feel slow.
+  const sizes = S.sizes || (S.sizes = await run('page_sizes')) || [];
+  for (let i = 0; i < S.info.page_count; i++) {
+    const size = sizes[i] || { width: 612, height: 792 };
+    const slot = el('div', 'thumb');
+    slot.dataset.page = i;
+    slot.style.height = Math.round(170 * (size.height / size.width)) + 'px';
+    slot.innerHTML = '<span>' + (i + 1) + '</span>';
+    slot.onclick = () => gotoPage(i);
+    pane.appendChild(slot);
+  }
   markThumb();
+  await fillThumbs();
+  watchThumbs();
+}
+
+async function fillThumbs() {
+  if (!S.info || S.thumbBusy) return;
+  S.thumbBusy = true;
+  try {
+    const pane = $('pane-thumbs');
+    const slots = [...pane.querySelectorAll('.thumb:not([data-done])')];
+    const needed = slots.filter((slot) => {
+      const box = slot.getBoundingClientRect();
+      const view = pane.getBoundingClientRect();
+      return box.bottom > view.top - 400 && box.top < view.bottom + 400;
+    }).slice(0, THUMB_BATCH);
+    if (!needed.length) return;
+
+    // Ask for one contiguous run: the bridge round trip costs more than the
+    // rendering does.
+    const first = parseInt(needed[0].dataset.page, 10);
+    const last = parseInt(needed[needed.length - 1].dataset.page, 10);
+    const batch = await run('thumbs', first, last - first + 1, 170);
+    (batch || []).forEach((t) => {
+      const slot = pane.querySelector('.thumb[data-page="' + t.index + '"]');
+      if (!slot || slot.dataset.done) return;
+      slot.dataset.done = '1';
+      slot.style.height = '';
+      slot.innerHTML = '<img src="' + t.image + '" alt="Page ' + (t.index + 1) +
+        '"><span>' + (t.index + 1) + '</span>';
+    });
+  } finally {
+    S.thumbBusy = false;
+  }
+}
+
+let thumbTimer = null;
+function watchThumbs() {
+  const pane = $('pane-thumbs');
+  if (pane.dataset.watching) return;
+  pane.dataset.watching = '1';
+  pane.addEventListener('scroll', () => {
+    clearTimeout(thumbTimer);
+    thumbTimer = setTimeout(fillThumbs, 90);
+  });
 }
 
 function markThumb() {
@@ -961,9 +1036,69 @@ function swatchHtml(current) {
     '" data-i="' + i + '" style="background:' + rgbCss(c) + '"></div>').join('') + '</div>';
 }
 
+function compareInspector() {
+  const r = S.compare;
+  const s = r.summary || {};
+  const pages = r.pages.filter((p) => p.state !== 'same');
+  let html = '<h3>comparison</h3>' +
+    '<div class="cmp-head"><b>' + (s.identical ? 'No differences' :
+      (pages.length + ' page' + (pages.length === 1 ? '' : 's') + ' differ')) + '</b>' +
+    '<span class="against">against ' + escapeHtml(r.against || 'the other document') + '</span></div>' +
+    '<div class="cmp-stats">' +
+      '<span class="plus">+' + (s.added_words || 0) + ' words</span>' +
+      '<span class="minus">−' + (s.removed_words || 0) + ' words</span>' +
+      (s.pages_added ? '<span class="plus">+' + s.pages_added + ' pages</span>' : '') +
+      (s.pages_removed ? '<span class="minus">−' + s.pages_removed + ' pages</span>' : '') +
+    '</div>';
+
+  pages.forEach((p, i) => {
+    const where = p.right !== null ? 'Page ' + (p.right + 1)
+                                   : 'Page ' + (p.left + 1) + ' (removed)';
+    const bits = (p.changes || []).slice(0, 3).map((c) =>
+      (c.before ? '<del>' + escapeHtml(c.before.slice(0, 60)) + '</del> ' : '') +
+      (c.after ? '<ins>' + escapeHtml(c.after.slice(0, 60)) + '</ins>' : '')).join('<br>');
+    html += '<div class="cmp-row' + (p.right === S.comparePage ? ' on' : '') +
+      '" data-page="' + (p.right === null ? -1 : p.right) + '">' +
+      '<div class="p">' + where + ' <span class="cmp-state ' + p.state + '">' +
+      p.state + '</span></div>' +
+      (bits ? '<div class="s">' + bits + '</div>' : '') + '</div>';
+  });
+
+  html += '<div class="field" style="margin-top:12px"><button id="cmp-mark" style="width:100%">' +
+    'Highlight these in the document</button></div>' +
+    '<div class="field"><button id="cmp-clear" style="width:100%">Clear comparison</button></div>';
+  return html;
+}
+
 function drawInspector() {
   const body = $('insp-body');
   const t = S.tool;
+
+  if (S.compare) {
+    body.innerHTML = compareInspector();
+    body.querySelectorAll('.cmp-row').forEach((row) => {
+      row.onclick = async () => {
+        const page = parseInt(row.dataset.page, 10);
+        if (page < 0) return;
+        S.comparePage = page;
+        await gotoPage(page);
+        drawInspector();
+      };
+    });
+    $('cmp-mark').onclick = async () => {
+      const r = await busyRun('Marking up…', 'compare_markup');
+      if (r) { toast('Added ' + r.marked + ' marks.', 'ok'); await refresh(false); }
+    };
+    $('cmp-clear').onclick = async () => {
+      await run('compare_clear');
+      S.compare = null;
+      S.comparePage = -1;
+      drawInspector();
+      await drawPage();
+    };
+    return;
+  }
+
   let html = '<h3>' + t + '</h3>';
 
   if (['highlight', 'underline', 'strikeout'].includes(t)) {
@@ -1045,6 +1180,38 @@ const ACTIONS = {
   redo: async () => { setInfo(await run('redo')); await refresh(); },
   find: () => openFind(),
   replace: () => promptReplace(),
+  compare: async () => {
+    const state = await run('tab_list');
+    const others = (state ? state.tabs : []).filter((t) => t.open && !t.active);
+    const options = others.map((t) =>
+      '<option value="' + t.index + '">' + escapeHtml(t.name) + '</option>').join('');
+    modal('Compare with',
+      '<div class="field"><label>Compare this document against</label>' +
+      '<select name="source">' + options +
+      '<option value="file">A file on disk…</option></select></div>' +
+      '<div class="field"><label>Which is the earlier version?</label>' +
+      '<select name="older"><option value="other">The other one</option>' +
+      '<option value="current">This one</option></select></div>' +
+      '<div class="field"><label><input type="checkbox" name="visual" style="width:auto" checked> ' +
+      'Also look for changes to graphics and layout</label></div>' +
+      '<p class="hint">Differences are marked on whichever document is the newer ' +
+      'of the two &mdash; green for added text, a dashed outline where the page ' +
+      'itself looks different.</p>',
+      async (v) => {
+        const r = v.source === 'file'
+          ? await busyRun('Comparing…', 'compare_file', v.visual, v.older)
+          : await busyRun('Comparing…', 'compare_tab', parseInt(v.source, 10), v.visual, v.older);
+        if (!r || r.cancelled) return;
+        S.compare = r;
+        const s = r.summary;
+        if (s.identical) toast('No differences found.', 'ok');
+        else toast('+' + s.added_words + ' / −' + s.removed_words + ' words across ' +
+          (s.pages_changed + s.pages_added + s.pages_removed) + ' page(s).', 'ok');
+        setTool('select');
+        drawInspector();
+        await drawPage();
+      }, 'Compare');
+  },
   props: () => promptProps(),
   defaultapp: async () => {
     const st = await run('default_app_status');
@@ -1370,6 +1537,23 @@ function renderHits(truncated) {
     ? (S.hitIndex + 1) + ' of ' + S.hits.length + (truncated ? '+' : '')
     : 'No matches';
   if (!S.hits.length) return;
+
+  if (S.compare) {
+    const forPage = S.compare.pages.find((p) => p.right === S.page);
+    if (forPage) {
+      const paint = (rects, cls) => (rects || []).forEach((r) => {
+        const mark = el('div', cls);
+        Object.assign(mark.style, {
+          left: toPx(r[0]) - 1 + 'px', top: toPx(r[1]) - 1 + 'px',
+          width: toPx(r[2] - r[0]) + 2 + 'px',
+          height: toPx(r[3] - r[1]) + 2 + 'px',
+        });
+        ov.appendChild(mark);
+      });
+      paint(forPage.visual_rects, 'diff-visual');
+      paint(forPage.added_rects, 'diff-add');
+    }
+  }
 
   S.hits.forEach((h, i) => {
     const row = el('div', 'findrow' + (i === S.hitIndex ? ' on' : ''),

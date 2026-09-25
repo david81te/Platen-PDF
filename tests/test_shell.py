@@ -15,8 +15,12 @@ def check(label, got, want):
 
 print("== single instance handoff ==")
 check("named pipes available", inst.available(), True)
-check("no delivery when nothing is listening",
-      inst.deliver(os.path.join(OUT, "fixture.pdf")), False)
+busy = inst.deliver(os.path.join(OUT, "fixture.pdf"))
+if busy:
+    print("  NOTE  a copy of PDF Studio is already running and owns the pipe;")
+    print("        close it before running this suite.")
+    sys.exit(2)
+check("no delivery when nothing is listening", busy, False)
 
 received = []
 inst.serve(received.append)
