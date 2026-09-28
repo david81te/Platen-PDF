@@ -178,6 +178,8 @@ backgrounds, hyperlinks, bookmarks, document properties, 25-step undo.
 | Ctrl+Z / Ctrl+Y | Undo / Redo |
 | Ctrl+F | Find |
 | Page Up/Down, arrows | Previous / next page |
+| Delete / Backspace | Remove the selected object |
+| Arrow keys | Nudge the selection, or turn the page when nothing is selected |
 | Esc | Cancel the current edit and return to the Select tool |
 
 The page refits whenever the window changes size, including maximising, unless a
@@ -291,6 +293,11 @@ bridge.
 - **Thumbnails are placeholders until they scroll into view.** Rendering
   every page up front was the other thing that made opening a long document
   feel slow.
+- **`buildOverlay` clears, awaits, then appends**, so two overlapping builds
+  duplicated every hit target -- a form field showed up twice. A generation
+  counter makes a superseded build bail out.
+- **The arrow keys already belonged to page navigation**, so a later branch
+  for nudging the selection was unreachable. Order matters in that handler.
 - **`S` is a top-level `const`, not `window.S`.** A classic script's top-level
   `const` is a lexical binding, so a readiness probe testing `window.S` is
   always false and the wait loop silently falls through. Test `typeof S`.
