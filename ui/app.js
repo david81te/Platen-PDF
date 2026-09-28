@@ -1118,6 +1118,7 @@ function markThumb() {
 
 async function loadOutline() {
   const pane = $('pane-outline');
+  if (!S.info) { pane.innerHTML = ''; return; }
   const items = await run('outline');
   pane.innerHTML = '';
   if (!items || !items.length) {
@@ -1166,6 +1167,7 @@ async function loadComments() {
 
 async function loadLinks() {
   const pane = $('pane-comments');
+  if (!S.info) return;
   const links = (await run('link_list', S.page)) || [];
   if (!links.length) return;
   const head = el('div', 'pane-sub', 'Links on this page');
@@ -1425,7 +1427,12 @@ function setTool(tool) {
   document.querySelectorAll('.tool').forEach((b) =>
     b.classList.toggle('active', b.dataset.tool === tool));
   drawInspector();
-  buildOverlay();
+  // The form panel lists fields that buildOverlay fetches, so draw again once
+  // they arrive -- otherwise switching to the field tool shows an empty panel
+  // on a document that plainly has fields.
+  Promise.resolve(buildOverlay()).then(() => {
+    if (S.tool === 'field') drawInspector();
+  });
 }
 
 /* ---------- menu actions ---------- */
@@ -1439,7 +1446,16 @@ const ACTIONS = {
   create: async () => { setInfo(await busyRun('Building PDF…', 'create_from_files')); await refresh(); },
   save: async () => { const r = await busyRun('Saving…', 'save'); if (r && !r.cancelled) { setInfo(r); toast('Saved.', 'ok'); } },
   saveas: async () => { const r = await busyRun('Saving…', 'save_as'); if (r && !r.cancelled) { setInfo(r); toast('Saved.', 'ok'); } },
-  close: async () => { await run('close_doc'); setInfo({ open: false }); },
+  close: async () => {
+    await run('close_doc');
+    resetPerDocumentState();
+    setInfo({ open: false });
+    ['outline', 'comments', 'sigs'].forEach((p) => {
+      if (p !== 'sigs') $('pane-' + p).innerHTML = '';
+    });
+    $('insp-body').innerHTML = '';
+    await buildOverlay();
+  },
   undo: async () => { setInfo(await run('undo')); await refresh(); },
   redo: async () => { setInfo(await run('redo')); await refresh(); },
   find: () => openFind(),
@@ -1613,7 +1629,7 @@ const ACTIONS = {
     ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right']
       .map((p) => '<option>' + p + '</option>').join('') + '</select></div>',
     async (v) => {
-      if (!v.template.trim()) return;
+      if (!v.template.trim()) { toast('Type the text to place first.', 'err'); return; }
       await busyRun('Applying…', 'stamp_text', v.template, v.position, null, 9);
       await refresh();
     }, 'Apply'),

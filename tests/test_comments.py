@@ -16,7 +16,7 @@ def drive(window):
         print("  %s %-42s %r" % ("ok  " if ok else "BUG ", label, got), flush=True)
 
     for _ in range(60):
-        if js("!!(window.pywebview && window.pywebview.api && window.S)"): break
+        if js("!!(window.pywebview && window.pywebview.api) && typeof S !== 'undefined'"): break
         time.sleep(0.25)
     js("window.openOnStart(%r)" % os.path.join(OUT,"fixture.pdf").replace("\\","/"))
     time.sleep(3)

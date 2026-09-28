@@ -235,6 +235,7 @@ shrunk to an illegible size.
 .venv\Scripts\python tests\test_api.py       # the API surface the UI calls
 .venv\Scripts\python tests\test_ocr.py       # scan -> searchable, pixels unchanged
 .venv\Scripts\python tests\test_ui.py        # drives the real front end
+.venv\Scripts\python tests\test_buttons.py  # clicks every control in the window
 .venv\Scripts\python tests\test_comments.py # clicking a comment opens it
 .venv\Scripts\python tests\make_hard.py     # awkward multi-page fixture
 .venv\Scripts\python tests\test_edge.py     # edge cases and error paths
@@ -289,6 +290,12 @@ bridge.
 - **Thumbnails are placeholders until they scroll into view.** Rendering
   every page up front was the other thing that made opening a long document
   feel slow.
+- **`S` is a top-level `const`, not `window.S`.** A classic script's top-level
+  `const` is a lexical binding, so a readiness probe testing `window.S` is
+  always false and the wait loop silently falls through. Test `typeof S`.
+- **Panels that read state fetched during `buildOverlay` must redraw after
+  it resolves.** `setTool` draws the inspector first, so the form panel
+  rendered empty on a document that plainly had fields.
 - **A failed PyInstaller run leaves the previous `dist/` in place.** It is
   easy to keep testing a stale executable and conclude a fix did not work.
   `build.ps1` now checks the exit code and stops loudly; if a change seems

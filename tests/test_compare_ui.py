@@ -22,7 +22,7 @@ def drive(window):
         print("  %s %-48s %r" % ("ok  " if ok else "BUG ", label, got), flush=True)
 
     for _ in range(60):
-        if js("!!(window.pywebview && window.pywebview.api && window.S)"):
+        if js("!!(window.pywebview && window.pywebview.api) && typeof S !== 'undefined'"):
             break
         time.sleep(0.25)
 
