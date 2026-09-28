@@ -58,11 +58,15 @@ async function call(name, ...args) {
   return res.data;
 }
 
+// Work already in flight when a document closes will land against nothing.
+// That is a race, not something the reader can act on, so it fails quietly.
+const SILENT_ERRORS = ['No document is open.'];
+
 async function run(name, ...args) {
   try {
     return await call(name, ...args);
   } catch (err) {
-    toast(err.message, 'err');
+    if (!SILENT_ERRORS.includes(err.message)) toast(err.message, 'err');
     return null;
   }
 }
@@ -233,7 +237,14 @@ function localPoint(ev) {
 
 /* ---------- overlay & tools ---------- */
 
+// Two overlapping builds each cleared the overlay, then each appended once the
+// awaits resolved, leaving duplicated hit targets. A generation counter lets a
+// superseded build bail out instead.
+let overlayRun = 0;
+
 async function buildOverlay() {
+  const mine = ++overlayRun;
+  const stale = () => mine !== overlayRun;
   const ov = $('overlay');
   ov.innerHTML = '';
   ov.className = '';
@@ -243,6 +254,7 @@ async function buildOverlay() {
   if (S.tool === 'text') {
     ov.classList.add('textmode');
     S.layout = await run('text_layout', S.page);
+    if (stale()) return;
     if (S.layout) {
       S.layout.blocks.forEach((b) => {
         const badge = el('div', 'hit block', '¶');
@@ -275,6 +287,7 @@ async function buildOverlay() {
 
   if (SELECTING_TOOLS.includes(S.tool)) {
     S.annots = (await run('annot_list', S.page)) || [];
+    if (stale()) return;
     S.annots.forEach((a) => {
       const hit = el('div', 'annothit' + (a.id === S.selectedAnnot ? ' on' : ''));
       // A sticky note draws a small icon, so give tiny rects a usable target.
@@ -308,6 +321,7 @@ async function buildOverlay() {
 
   if (SELECTING_TOOLS.includes(S.tool) || S.tool === 'field') {
     S.fields = (await run('form_list', S.page)) || [];
+    if (stale()) return;
     S.fields.forEach((f) => {
       const hit = el('div', 'fieldhit' + (f.name === S.selectedField ? ' on' : ''));
       Object.assign(hit.style, {
@@ -364,6 +378,31 @@ async function buildOverlay() {
     ov.appendChild(mark);
   });
 }
+
+let nudging = false;
+
+async function nudgeSelected(key, step) {
+  // Written straight through rather than moved locally first: buildOverlay
+  // refetches the annotations, so an optimistic local move is wiped out before
+  // it can be saved.
+  if (nudging) return;
+  const a = (S.annots || []).find((x) => x.id === S.selectedAnnot);
+  if (!a) return;
+  const dx = key === 'ArrowLeft' ? -step : key === 'ArrowRight' ? step : 0;
+  const dy = key === 'ArrowUp' ? -step : key === 'ArrowDown' ? step : 0;
+  if (!dx && !dy) return;
+
+  nudging = true;
+  try {
+    const moved = [a.rect[0] + dx, a.rect[1] + dy, a.rect[2] + dx, a.rect[3] + dy];
+    const res = await run('annot_update', S.page, a.id, moved);
+    if (res && res.id) S.selectedAnnot = res.id;   // a line is rebuilt, so its id moves
+    await refresh(false);
+  } finally {
+    nudging = false;
+  }
+}
+
 
 /* ---- filling in a form ---- */
 
@@ -483,6 +522,12 @@ function drawLineSelection(a) {
   ov.appendChild(guide);
   const svgLine = guide.querySelector('line');
 
+  const kill = el('button', 'linekill', '✕');
+  kill.title = 'Delete (or press Delete)';
+  kill.onclick = (e) => { e.stopPropagation(); deleteSelected(); };
+  kill.onpointerdown = (e) => e.stopPropagation();
+  ov.appendChild(kill);
+
   const grips = [
     el('div', 'endpoint'),
     el('div', 'endpoint tip'),
@@ -500,6 +545,8 @@ function drawLineSelection(a) {
     grips[1].style.top = toPx(pts[1][1]) + 'px';
     grips[2].style.left = toPx((pts[0][0] + pts[1][0]) / 2) + 'px';
     grips[2].style.top = toPx((pts[0][1] + pts[1][1]) / 2) + 'px';
+    kill.style.left = toPx((pts[0][0] + pts[1][0]) / 2) + 22 + 'px';
+    kill.style.top = toPx((pts[0][1] + pts[1][1]) / 2) + 'px';
     svgLine.setAttribute('x1', toPx(pts[0][0]));
     svgLine.setAttribute('y1', toPx(pts[0][1]));
     svgLine.setAttribute('x2', toPx(pts[1][0]));
@@ -556,6 +603,11 @@ function drawSelection(a) {
   });
   frame.title = a.is_signature ? 'Drag to move, corners to resize'
                                : 'Drag to move, corners to resize, double-click to edit';
+  const kill = el('button', 'kill', '✕');
+  kill.title = 'Delete (or press Delete)';
+  kill.onclick = (e) => { e.stopPropagation(); deleteSelected(); };
+  kill.onpointerdown = (e) => e.stopPropagation();
+  frame.appendChild(kill);
   $('overlay').appendChild(frame);
 
   let drag = null;
@@ -664,6 +716,37 @@ function editAnnot(a) {
       await buildOverlay();
     }, 'Save');
 }
+
+async function deleteSelected(silent) {
+  // Undo covers this, so a key press removes the object outright rather than
+  // stopping to ask.
+  if (S.selectedAnnot) {
+    const id = S.selectedAnnot;
+    const found = (S.annots || []).find((a) => a.id === id);
+    S.selectedAnnot = null;
+    closeBubble();
+    const r = await run('annot_delete', S.page, id);
+    if (!r) return false;
+    await refresh(false);
+    await loadComments();
+    if (!silent) toast('Deleted ' + ((found && found.type) || 'it') +
+      ' — Ctrl+Z to put it back.', 'ok');
+    return true;
+  }
+  if (S.selectedField) {
+    const name = S.selectedField;
+    if (!confirm('Remove the form field "' + name + '"?')) return false;
+    S.selectedField = null;
+    const r = await run('form_delete', S.page, name);
+    if (!r) return false;
+    await refresh(false);
+    drawInspector();
+    if (!silent) toast('Removed the field — Ctrl+Z to put it back.', 'ok');
+    return true;
+  }
+  return false;
+}
+
 
 async function deleteAnnot(a) {
   if (!confirm('Delete this ' + a.type + '?')) return;
@@ -2061,8 +2144,19 @@ document.addEventListener('keydown', (e) => {
   else if (ctrl && e.key.toLowerCase() === 'z') { e.preventDefault(); ACTIONS.undo(); }
   else if (ctrl && e.key.toLowerCase() === 'y') { e.preventDefault(); ACTIONS.redo(); }
   else if (ctrl && e.key.toLowerCase() === 'f') { e.preventDefault(); openFind(); }
+  // An arrow nudges the selection when there is one, and turns the page when
+  // there is not. This has to be tested before the paging branches below,
+  // which would otherwise swallow Left and Right.
+  else if (e.key.startsWith('Arrow') && S.selectedAnnot && !S.editing) {
+    e.preventDefault();
+    nudgeSelected(e.key, e.shiftKey ? 10 : 1);
+  }
   else if (e.key === 'PageDown' || e.key === 'ArrowRight') gotoPage(S.page + 1);
   else if (e.key === 'PageUp' || e.key === 'ArrowLeft') gotoPage(S.page - 1);
+  else if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (S.editing) return;
+    if (S.selectedAnnot || S.selectedField) { e.preventDefault(); deleteSelected(); }
+  }
   else if (e.key === 'Escape') { cancelEdit(); setTool('select'); }
 });
 

@@ -236,6 +236,7 @@ shrunk to an illegible size.
 .venv\Scripts\python tests\test_ocr.py       # scan -> searchable, pixels unchanged
 .venv\Scripts\python tests\test_ui.py        # drives the real front end
 .venv\Scripts\python tests\test_buttons.py  # clicks every control in the window
+.venv\Scripts\python tests\test_delete.py   # Delete removes every kind of object
 .venv\Scripts\python tests\test_comments.py # clicking a comment opens it
 .venv\Scripts\python tests\make_hard.py     # awkward multi-page fixture
 .venv\Scripts\python tests\test_edge.py     # edge cases and error paths
