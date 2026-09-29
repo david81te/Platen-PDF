@@ -13,7 +13,13 @@ python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
 .\build.ps1              # folder build  -> dist\PDFStudio\PDFStudio.exe
 .\build.ps1 -Portable    # single file   -> dist\PDFStudio.exe
+.\package.ps1            # installer zip -> dist\PDFStudio-Setup.zip
 ```
+
+Both build scripts pipe the packaged exe's `--selftest` output rather than
+calling it plainly. The exe is windowed, so a bare call returns immediately
+and leaves `$LASTEXITCODE` untouched -- a check written that way passes no
+matter what the build did.
 
 Two flavours, same app:
 
@@ -46,33 +52,70 @@ the taskbar use, so check `assets/icon_sizes.png` after any change.
 
 ## Sharing it with other people
 
-Both builds are self-contained: no Python, no installer, nothing to set up.
-Send `dist\PDFStudio.exe` (single file) or a zip of `dist\PDFStudio\`.
-Verified by running a copy in an empty folder with no Python or project files
-present.
+```powershell
+.\build.ps1        # folder build
+.\package.ps1      # -> dist\PDFStudio-Setup.zip  (140 MB)
+```
 
-What a recipient needs:
+Send that one zip. The person extracts it and double-clicks **Install PDF
+Studio**. Nothing else: no Python, no administrator password, no separate
+download for OCR.
+
+`package.ps1` re-runs the self-test before packaging and refuses to wrap a zip
+around an exe that fails it. It stages `dist\PDFStudio\` beside the two
+installer files and a plain-English `Read me first.txt`, then writes the zip
+entries itself -- on Windows PowerShell 5.1 both `Compress-Archive` and
+`ZipFile::CreateFromDirectory` put backslashes in the entry names, which is
+off-spec.
+
+What the installer does, all within the user profile:
+
+- clears the mark Windows puts on downloaded files, which otherwise makes
+  every file in the folder prompt or quietly fail
+- closes a running copy, then copies to `%LOCALAPPDATA%\Programs\PDF Studio`
+- adds Start menu and desktop shortcuts
+- runs `--register`, putting PDF Studio in *Open with*
+- leaves `Uninstall PDF Studio.cmd` beside the program, which reverses all of
+  the above
+
+No administrator rights, and nothing written outside the user profile and
+`HKEY_CURRENT_USER`. Tested end to end -- extract, install, run the installed
+copy's self-test, uninstall -- and confirmed to leave the registry and
+shortcuts exactly as it found them.
+
+Running `Install PDF Studio` from inside Explorer's zip preview cannot work:
+Windows copies out that one file and leaves the program behind. The installer
+recognises that case and says so instead of failing obscurely.
+
+### Without the installer
+
+Both builds are self-contained, so a zip of `dist\PDFStudio\` or the single
+`dist\PDFStudio.exe` still works. The recipient just gets no shortcuts, no
+*Open with* entry and no uninstaller, and has to know to extract before
+running.
+
+### What a recipient needs
 
 - **64-bit Windows.** Not ARM Windows, not macOS.
 - **Edge WebView2**, which Windows 11 and up-to-date Windows 10 already have.
   If it is missing the app says so and links to the free Microsoft installer
   rather than failing silently.
-- **Microsoft Office or LibreOffice — only** to open Word/Excel/PowerPoint
+- **Microsoft Office or LibreOffice -- only** to open Word/Excel/PowerPoint
   files. Everything else, including OCR, works without either, and the app
   explains the limit instead of erroring out.
 
-What to expect:
+### What to expect
 
 - **SmartScreen will warn** ("Windows protected your PC") because the file is
   not code-signed: More info > Run anyway. Silencing this needs a paid signing
   certificate.
-- **Some antivirus flags PyInstaller single-file builds.** The folder build is
-  flagged less often, being an ordinary exe beside its libraries.
-- **Too big to email** at 139 MB. Use OneDrive, SharePoint or Teams.
+- **Some antivirus flags PyInstaller single-file builds.** The folder build
+  inside the installer is flagged less often, being an ordinary exe beside its
+  libraries.
+- **Too big to email** at 140 MB. Use OneDrive, SharePoint or Teams.
 
 Each person gets their own signatures (`%APPDATA%\PDFEditorPro`) and their own
-file associations. Nothing is written outside the user profile, and nothing
-outside `HKEY_CURRENT_USER` in the registry.
+file associations.
 
 ## Opening PDFs from Explorer
 
@@ -277,6 +320,7 @@ backend/
   convert.py        conversion in and out, OCR, compression
   decorate.py       watermarks, page numbers, headers, backgrounds
 ui/                 index.html, styles.css, app.js
+installer/          Install PDF Studio.cmd + install.ps1, packaged by package.ps1
 ```
 
 Note: every attribute on the `Api` object is private. pywebview walks the public
