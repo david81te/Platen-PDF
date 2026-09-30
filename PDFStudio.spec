@@ -49,4 +49,5 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon="assets/pdfstudio.ico",
+    version="assets/version_info.txt",
 )

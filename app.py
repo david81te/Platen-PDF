@@ -8,10 +8,10 @@ import sys
 
 import webview
 
-from backend import shell_integration, single_instance, titlebar
+from backend import shell_integration, single_instance, titlebar, version
 from backend.api import Api
 
-APP_NAME = "PDF Studio"
+APP_NAME = version.APP_NAME
 
 
 def _base_dir() -> str:

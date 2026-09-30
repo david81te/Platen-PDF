@@ -421,3 +421,9 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
 .selframe .kill { right: -11px; top: -11px; }
 .linekill { margin: -9px 0 0 -9px; }
 .selframe .kill:hover, .linekill:hover { background: #ff6b64; }
+
+/* ---- about box ---- */
+.about-v { color: var(--muted); margin-bottom: 10px; }
+.about-l { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+.about-l td { padding: 4px 0; border-top: 1px solid var(--line); vertical-align: top; }
+.about-l td:last-child { color: var(--muted); text-align: right; padding-left: 16px; }

@@ -1,5 +1,8 @@
 # PDF Studio
 
+Copyright (c) 2026 David Willmore. All rights reserved. Proprietary; see
+[LICENSE](LICENSE) and [THIRD-PARTY.md](THIRD-PARTY.md).
+
 A standalone Windows PDF editor — Acrobat-style editing, conversion and signing,
 in a single `.exe` with no install and no subscription.
 
@@ -288,6 +291,7 @@ shrunk to an illegible size.
 .venv\Scripts\python tests\test_flows.py    # multi-step workflows
 .venv\Scripts\python tests\test_shell.py    # file association + single instance
 .venv\Scripts\python tests\test_titlebar.py # the caption bar is dark, checked in pixels
+.venv\Scripts\python tests\test_about.py    # copyright is present and consistent
 ```
 
 `make_fixture.py` needs Word; the rest run against the PDF it produces.
@@ -295,9 +299,17 @@ shrunk to an illegible size.
 It never synthesises mouse or keyboard input, so it cannot disturb whatever
 else is open on the desktop — do not replace it with input automation.
 
-`test_titlebar.py` is the one exception to being invisible: it raises the window
-with `SWP_NOACTIVATE` -- which does not move focus -- long enough to photograph
-the caption, because the whole point is what the pixels look like.
+`test_titlebar.py` is the one test that photographs the screen, because the
+whole point is what the caption looks like. It raises the window with
+`SWP_NOACTIVATE`, which changes z-order without moving focus, then checks
+`WindowFromPoint` before grabbing. If anything is still in front it prints
+SKIP and captures nothing -- a blind grab would write whatever the user had
+open to disk. Never remove that guard, and never make it steal focus to win.
+
+`test_about.py` checks that the copyright in `backend/version.py`,
+`assets/version_info.txt` and the About box all still agree. PyInstaller reads
+the version resource at build time and cannot import Python, so the two files
+are separate by necessity and drift is the obvious failure.
 
 To check a packaged build without a GUI:
 
@@ -320,6 +332,7 @@ backend/
   pages.py          page organisation
   annots.py         markup, shapes, ink, images, links
   titlebar.py       dark window caption, overriding the system theme
+  version.py        name, version and copyright, shared by app and About box
   signatures.py     signature library and flattened placement
   forms.py          form fields
   security.py       passwords and redaction

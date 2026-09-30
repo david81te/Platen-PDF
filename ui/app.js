@@ -1576,6 +1576,7 @@ const ACTIONS = {
       }, 'Compare');
   },
   props: () => promptProps(),
+  about: () => showAbout(),
   defaultapp: async () => {
     const st = await run('default_app_status');
     if (!st) return;
@@ -1956,6 +1957,20 @@ function promptReplace() {
     }, 'Replace all');
 }
 
+async function showAbout() {
+  const a = await run('about');
+  if (!a) return;
+  const parts = a.components.map(
+    (c) => '<tr><td>' + escapeHtml(c.name) + '</td><td>' +
+           escapeHtml(c.licence) + '</td></tr>').join('');
+  modal('About ' + escapeHtml(a.name),
+    '<p class="about-v">Version ' + escapeHtml(a.version) + '</p>' +
+    '<p>' + escapeHtml(a.copyright) + '</p>' +
+    '<p class="hint">Built on open-source components, which keep their own ' +
+    'licences:</p>' +
+    '<table class="about-l"><tbody>' + parts + '</tbody></table>', null, 'OK');
+}
+
 async function promptProps() {
   const i = S.info || {};
   modal('Document properties',
@@ -1997,7 +2012,7 @@ document.querySelectorAll('.menu').forEach((m) => {
       m.classList.remove('open');
       const fn = ACTIONS[li.dataset.act];
       if (!fn) return;
-      if (!S.info && !['open', 'create', 'defaultapp'].includes(li.dataset.act)) {
+      if (!S.info && !['open', 'create', 'defaultapp', 'about'].includes(li.dataset.act)) {
         toast('Open a document first.', 'err');
         return;
       }

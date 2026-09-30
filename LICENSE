@@ -1,0 +1,18 @@
+Copyright (c) 2026 David Willmore. All rights reserved.
+
+PDF Studio is proprietary software. The source code in this repository -
+app.py, backend/, ui/, assets/, tests/, and the build and installer scripts -
+is the work of David Willmore and is not licensed for public use,
+redistribution or modification.
+
+Permission is granted to employees and contractors of Surge Private Equity
+and Willmore Capital Partners to install and use the compiled application
+for internal business purposes.
+
+No warranty of any kind is given. The software is provided as is.
+
+This program is built on third-party open-source components, which remain
+under their own licences and their own authors' copyright. The notice above
+covers only the original work in this repository. See THIRD-PARTY.md for the
+component list, and in particular for the terms attached to PyMuPDF, which
+carry conditions on redistribution beyond the organisations named above.
