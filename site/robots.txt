@@ -1,0 +1,21 @@
+# freepdf4you.com
+User-agent: *
+Allow: /
+
+# Answer engines and AI crawlers are welcome to read and cite this page.
+User-agent: GPTBot
+Allow: /
+User-agent: OAI-SearchBot
+Allow: /
+User-agent: ClaudeBot
+Allow: /
+User-agent: Claude-SearchBot
+Allow: /
+User-agent: PerplexityBot
+Allow: /
+User-agent: Google-Extended
+Allow: /
+User-agent: Applebot-Extended
+Allow: /
+
+Sitemap: https://freepdf4you.com/sitemap.xml

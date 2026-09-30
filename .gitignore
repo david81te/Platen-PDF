@@ -7,3 +7,6 @@ dist/
 tests/output/
 *.log
 *.zip
+
+# Vercel link/config, per-machine
+.vercel/
