@@ -1,6 +1,6 @@
 # freepdf4you.com
 
-The marketing site for PDF Studio. One static page, no build step, no
+The marketing site for Platen PDF. One static page, no build step, no
 dependencies — Vercel serves this directory as-is.
 
 ## Files
@@ -20,7 +20,7 @@ dependencies — Vercel serves this directory as-is.
 1. **Donate** — `index.html` has `https://ko-fi.com/REPLACE-ME`. Swap in the real
    Ko-fi, Buy Me a Coffee, GitHub Sponsors or Stripe payment link.
 2. **Download** — points at
-   `https://github.com/david81te/PDF-Studio/releases/latest/download/PDFStudio-Setup.zip`.
+   `https://github.com/david81te/Platen-PDF/releases/latest/download/PlatenPDF-Setup.zip`.
    That URL only works once the repository is public **and** a release exists
    with the zip attached. A private repository returns 404 to visitors.
 

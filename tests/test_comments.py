@@ -89,7 +89,7 @@ def drive(window):
     window.destroy()
 
 api = Api()
-w = webview.create_window("PDF Studio comments", url=UI, js_api=api, width=1200, height=800, hidden=True)
+w = webview.create_window("Platen PDF comments", url=UI, js_api=api, width=1200, height=800, hidden=True)
 api.attach_window(w)
 webview.start(drive, w)
 print("\nRESULT:", "PASS" if not fails else "FAIL %s" % fails)

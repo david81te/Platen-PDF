@@ -1,4 +1,4 @@
-/* PDF Studio front end. Talks to the Python backend through pywebview. */
+/* Platen PDF front end. Talks to the Python backend through pywebview. */
 
 const S = {
   info: null,
@@ -1583,12 +1583,12 @@ const ACTIONS = {
     if (!st.packaged) {
       modal('Not available in the development build',
         '<p class="hint">Registering would point Windows at python.exe. ' +
-        'Run the built <b>PDFStudio.exe</b> and try again.</p>', null);
+        'Run the built <b>PlatenPDF.exe</b> and try again.</p>', null);
       return;
     }
     if (st.is_default) {
       modal('Already the default',
-        '<p class="hint">PDF Studio already opens .pdf files on this account.</p>' +
+        '<p class="hint">Platen PDF already opens .pdf files on this account.</p>' +
         '<div class="field"><label>Remove the association?</label></div>',
         async () => {
           await run('unregister_file_types');
@@ -1598,7 +1598,7 @@ const ACTIONS = {
     }
     modal('Set as default PDF app',
       '<p class="hint">Windows does not let an application make itself the ' +
-      'default — that choice is yours to confirm. PDF Studio will be added to ' +
+      'default — that choice is yours to confirm. Platen PDF will be added to ' +
       'the list of PDF apps, then the Windows <b>Default apps</b> screen opens ' +
       'so you can pick it.</p>' +
       '<p class="hint">Currently opening PDFs: <b>' +
@@ -1608,7 +1608,7 @@ const ACTIONS = {
       async () => {
         const r = await busyRun('Registering…', 'register_file_types');
         if (!r) return;
-        toast('Added. Choose PDF Studio under Default apps to finish.', 'ok');
+        toast('Added. Choose Platen PDF under Default apps to finish.', 'ok');
       }, 'Register and open Settings');
   },
 
@@ -1966,6 +1966,8 @@ async function showAbout() {
   modal('About ' + escapeHtml(a.name),
     '<p class="about-v">Version ' + escapeHtml(a.version) + '</p>' +
     '<p>' + escapeHtml(a.copyright) + '</p>' +
+    '<p class="about-lic">' + escapeHtml(a.licence) + '<br>' +
+    'Source code: <b>' + escapeHtml(a.source) + '</b></p>' +
     '<p class="hint">Built on open-source components, which keep their own ' +
     'licences:</p>' +
     '<table class="about-l"><tbody>' + parts + '</tbody></table>', null, 'OK');

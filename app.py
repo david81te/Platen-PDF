@@ -1,4 +1,4 @@
-"""PDF Studio - a standalone PDF editor."""
+"""Platen PDF - a standalone PDF editor."""
 from __future__ import annotations
 
 import ctypes
@@ -66,25 +66,25 @@ def main() -> None:
             print(exc)
             raise SystemExit(1)
         print("Registered. Windows still needs you to confirm the choice:")
-        print("  Settings > Apps > Default apps > PDF Studio")
+        print("  Settings > Apps > Default apps > Platen PDF")
         print("  current .pdf handler:", state["current_handler"])
         shell_integration.open_default_apps_settings()
         raise SystemExit(0)
 
     if "--unregister" in sys.argv:
         shell_integration.unregister()
-        print("Removed PDF Studio from the Windows file associations.")
+        print("Removed Platen PDF from the Windows file associations.")
         raise SystemExit(0)
 
     missing = shell_integration.webview2_version() is None
     if missing:
         message = (
-            "PDF Studio needs the Microsoft Edge WebView2 runtime, which is "
+            "Platen PDF needs the Microsoft Edge WebView2 runtime, which is "
             "not installed on this PC.\n\n"
             "It is free from Microsoft and installs in under a minute:\n"
             + shell_integration.WEBVIEW2_DOWNLOAD +
             "\n\nDownload the Evergreen Standalone Installer, run it, "
-            "then start PDF Studio again.")
+            "then start Platen PDF again.")
         try:
             ctypes.windll.user32.MessageBoxW(None, message, APP_NAME, 0x10)
         except Exception:

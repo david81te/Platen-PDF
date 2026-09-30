@@ -1,4 +1,4 @@
-"""Turn assets/app_icon_source.png into assets/pdfstudio.ico.
+"""Turn assets/app_icon_source.png into assets/platenpdf.ico.
 
 Windows chooses the closest embedded size, so a .ico is an icon set rather than
 one image. The source art is trimmed to its content, padded to a square and
@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw, ImageEnhance
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SOURCE = os.path.join(HERE, "app_icon_source.png")
-ICO = os.path.join(HERE, "pdfstudio.ico")
+ICO = os.path.join(HERE, "platenpdf.ico")
 ICO_SIZES = (256, 128, 64, 48, 32, 24, 16)
 MARGIN = 0.035           # breathing room so the art is not flush to the edge
 
@@ -43,7 +43,7 @@ def build() -> str:
     layers = [resize(square, s) for s in ICO_SIZES]
     layers[0].save(ICO, format="ICO", sizes=[(s, s) for s in ICO_SIZES],
                    append_images=layers[1:])
-    layers[0].save(os.path.join(HERE, "pdfstudio_256.png"))
+    layers[0].save(os.path.join(HERE, "platenpdf_256.png"))
 
     # Preview strip on a mid grey, so both light and dark edges are visible.
     strip = Image.new("RGB", (sum(s + 18 for s in ICO_SIZES) + 18, 300), (238, 241, 246))

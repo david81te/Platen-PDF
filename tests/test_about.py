@@ -33,14 +33,24 @@ def check(label, got, want):
 
 
 print("== the files that carry the notice ==")
-resource = io.open(os.path.join(ROOT, "assets", "version_info.txt"),
-                   encoding="utf-8").read()
-licence = io.open(os.path.join(ROOT, "LICENSE"), encoding="utf-8").read()
-readme = io.open(os.path.join(ROOT, "README.md"), encoding="utf-8").read()
-third = io.open(os.path.join(ROOT, "THIRD-PARTY.md"), encoding="utf-8").read()
+def read(name):
+    return io.open(os.path.join(ROOT, name), encoding="utf-8").read()
 
-check("LICENSE names the author", version.AUTHOR in licence, True)
-check("LICENSE asserts copyright", version.COPYRIGHT in licence, True)
+resource = read(os.path.join("assets", "version_info.txt"))
+licence = read("LICENSE")
+notice = read("COPYRIGHT")
+readme = read("README.md")
+third = read("THIRD-PARTY.md")
+
+# LICENSE is the verbatim AGPL text, so the authorship notice lives in
+# COPYRIGHT beside it - that is the usual layout for a GPL-family project.
+check("LICENSE is the AGPL itself",
+      "GNU AFFERO GENERAL PUBLIC LICENSE" in licence, True)
+check("and is the whole text, not a summary",
+      len(licence.splitlines()), lambda n: n > 600)
+check("COPYRIGHT names the author", version.AUTHOR in notice, True)
+check("COPYRIGHT asserts copyright", version.COPYRIGHT in notice, True)
+check("COPYRIGHT points at the source", version.SOURCE in notice, True)
 check("README carries the notice", version.COPYRIGHT in readme, True)
 check("version resource has the same copyright",
       version.COPYRIGHT in resource, True)
@@ -56,7 +66,7 @@ print("")
 print("== the licences it is built on are disclosed ==")
 check("THIRD-PARTY lists PyMuPDF", "PyMuPDF" in third, True)
 check("and says it is AGPL", "Affero" in third, True)
-check("LICENSE points at THIRD-PARTY", "THIRD-PARTY.md" in licence, True)
+check("COPYRIGHT points at THIRD-PARTY", "THIRD-PARTY.md" in notice, True)
 check("every component in the About box is documented",
       [n for n, _ in version.COMPONENTS
        if n.split(",")[0].split(" +")[0] not in third], [])
@@ -87,12 +97,16 @@ def drive(window):
     check("it shows the version", version.VERSION in text, True)
     check("it credits PyMuPDF", "PyMuPDF" in text, True)
     check("and names its licence", "AGPL" in text, True)
+    # AGPL section 5: an interactive program should show this where a user
+    # can find it, with directions to the source.
+    check("it states the program's own licence", version.LICENCE in text, True)
+    check("and links the source", version.SOURCE in text, True)
     js("document.querySelector('#modal [data-x]').click()")
     window.destroy()
 
 
 api = Api()
-w = webview.create_window("PDF Studio about", url=UI, js_api=api,
+w = webview.create_window("Platen PDF about", url=UI, js_api=api,
                           width=1100, height=800, hidden=True)
 api.attach_window(w)
 webview.start(drive, w)

@@ -1,7 +1,7 @@
-# Builds PDF Studio.
+# Builds Platen PDF.
 #
-#   .\build.ps1            fast folder build  -> dist\PDFStudio\PDFStudio.exe
-#   .\build.ps1 -Portable  single file        -> dist\PDFStudio.exe
+#   .\build.ps1            fast folder build  -> dist\PlatenPDF\PlatenPDF.exe
+#   .\build.ps1 -Portable  single file        -> dist\PlatenPDF.exe
 #
 # The folder build starts in about a second and is the one to use when PDF
 # Studio is your default PDF application; the single file is easier to copy
@@ -13,12 +13,12 @@ Set-Location $PSScriptRoot
 
 if ($Portable) {
     Write-Host "Building the single-file build..." -ForegroundColor Cyan
-    & ".venv\Scripts\pyinstaller.exe" --noconfirm --clean PDFStudio.spec
-    $out = "dist\PDFStudio.exe"
+    & ".venv\Scripts\pyinstaller.exe" --noconfirm --clean PlatenPDF.spec
+    $out = "dist\PlatenPDF.exe"
 } else {
     Write-Host "Building the folder build..." -ForegroundColor Cyan
-    & ".venv\Scripts\pyinstaller.exe" --noconfirm --clean PDFStudio-folder.spec
-    $out = "dist\PDFStudio\PDFStudio.exe"
+    & ".venv\Scripts\pyinstaller.exe" --noconfirm --clean PlatenPDF-folder.spec
+    $out = "dist\PlatenPDF\PlatenPDF.exe"
 }
 
 if ($LASTEXITCODE -ne 0) {

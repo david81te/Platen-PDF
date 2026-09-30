@@ -17,9 +17,9 @@ import os
 import sys
 import winreg
 
-APP_NAME = "PDF Studio"
-PROG_ID = "PDFStudio.Document"
-CAPABILITY_KEY = r"Software\PDFStudio\Capabilities"
+APP_NAME = "Platen PDF"
+PROG_ID = "PlatenPDF.Document"
+CAPABILITY_KEY = r"Software\PlatenPDF\Capabilities"
 EXTENSIONS = (".pdf",)
 
 SHCNE_ASSOCCHANGED = 0x08000000
@@ -94,7 +94,7 @@ def status() -> dict:
 
 def icon_source(exe: str) -> str:
     """Where Windows should read the document icon from."""
-    bundled = os.path.join(os.path.dirname(exe), "_internal", "assets", "pdfstudio.ico")
+    bundled = os.path.join(os.path.dirname(exe), "_internal", "assets", "platenpdf.ico")
     if os.path.isfile(bundled):
         return bundled
     return "%s,0" % exe          # single-file build: use the exe's own icon
@@ -105,7 +105,7 @@ def register() -> dict:
     exe = executable_path()
     if not exe:
         raise RuntimeError(
-            "Run the built PDFStudio.exe to register it. Registering the "
+            "Run the built PlatenPDF.exe to register it. Registering the "
             "development copy would point Windows at python.exe.")
 
     command = '"%s" "%%1"' % exe
@@ -149,7 +149,7 @@ def unregister() -> dict:
     hkcu = winreg.HKEY_CURRENT_USER
     exe = executable_path()
     _delete_tree(hkcu, r"Software\Classes\%s" % PROG_ID)
-    _delete_tree(hkcu, r"Software\PDFStudio")
+    _delete_tree(hkcu, r"Software\PlatenPDF")
     if exe:
         _delete_tree(hkcu, r"Software\Classes\Applications\%s" % os.path.basename(exe))
     for extension in EXTENSIONS:

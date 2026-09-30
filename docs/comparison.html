@@ -1,4 +1,4 @@
-<title>Acrobat vs PDF Studio</title>
+<title>Acrobat vs Platen PDF</title>
 <style>
   /* Light is the base set. Every colour below is a token so the two dark
      branches only have to redefine tokens, never components. */
@@ -243,7 +243,7 @@
   <div class="tally">
     <div class="t-full"><b id="n-full">0</b><span>Covered &mdash; does the job Acrobat does</span></div>
     <div class="t-part"><b id="n-part">0</b><span>Partly covered &mdash; works with limits</span></div>
-    <div class="t-none"><b id="n-none">0</b><span>Not in PDF Studio</span></div>
+    <div class="t-none"><b id="n-none">0</b><span>Not in Platen PDF</span></div>
   </div>
 
   <div class="legend">
@@ -271,7 +271,7 @@
 
   <section>
     <h2>Editing text</h2>
-    <p class="note">The headline feature, and the one with the most nuance. PDF Studio was
+    <p class="note">The headline feature, and the one with the most nuance. Platen PDF was
       built and tuned against PDFs exported from Word, which is where its text handling is
       most reliable.</p>
     <div class="scroller"><table>
@@ -283,7 +283,7 @@
         <tr><td class="cap">Add a text box</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">Stays movable, resizable and retypeable until flattened.</td></tr>
         <tr><td class="cap">Delete text from an area</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">Leaves images and table rules intact.</td></tr>
         <tr><td class="cap">Find and replace</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip part">partial</span></td><td class="why">Replaces matches that sit inside one styled run; anything split across styling is reported as skipped rather than mangled.</td></tr>
-        <tr><td class="cap">Text in several columns</td><td class="acro"><span class="chip part">partial</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">Neither reflows cleanly between columns; PDF Studio does not attempt it.</td></tr>
+        <tr><td class="cap">Text in several columns</td><td class="acro"><span class="chip part">partial</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">Neither reflows cleanly between columns; Platen PDF does not attempt it.</td></tr>
         <tr><td class="cap">Rotated or vertical text</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">Refused with a message rather than mangled.</td></tr>
         <tr><td class="cap">Spell check</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why"></td></tr>
       </tbody>
@@ -330,7 +330,7 @@
 
   <section>
     <h2>Signatures</h2>
-    <p class="note">PDF Studio does the &ldquo;paste my signature and lock it&rdquo; workflow.
+    <p class="note">Platen PDF does the &ldquo;paste my signature and lock it&rdquo; workflow.
       Cryptographic signing was deliberately left out.</p>
     <div class="scroller"><table>
       <thead><tr><th>Capability</th><th class="c-acrobat">Acrobat&nbsp;Pro</th><th class="c-studio">PDF&nbsp;Studio</th><th>Notes</th></tr></thead>
@@ -427,7 +427,7 @@
       <tbody>
         <tr><td class="cap">Windows</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">64-bit, with the Edge WebView2 runtime that Windows 10 and 11 already carry.</td></tr>
         <tr><td class="cap">Mac, iPad, phone, browser</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">Windows only.</td></tr>
-        <tr><td class="cap">Licence cost</td><td class="acro"><span class="chip part">paid</span></td><td class="stud"><span class="chip full">none</span></td><td class="why">Acrobat Pro is a per-user subscription; check current pricing. PDF Studio costs nothing per seat.</td></tr>
+        <tr><td class="cap">Licence cost</td><td class="acro"><span class="chip part">paid</span></td><td class="stud"><span class="chip full">none</span></td><td class="why">Acrobat Pro is a per-user subscription; check current pricing. Platen PDF costs nothing per seat.</td></tr>
         <tr><td class="cap">Installation</td><td class="acro"><span class="chip part">installer</span></td><td class="stud"><span class="chip full">copy a folder</span></td><td class="why">No installer, no sign-in, no admin rights.</td></tr>
         <tr><td class="cap">Set as the default PDF app</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip full">covered</span></td><td class="why">Per Windows account, no admin rights needed.</td></tr>
         <tr><td class="cap">Signed by a known publisher</td><td class="acro"><span class="chip full">yes</span></td><td class="stud"><span class="chip none">no</span></td><td class="why">Unsigned, so Windows SmartScreen warns on first run. Silencing it needs a paid certificate.</td></tr>
@@ -455,7 +455,7 @@
   </div>
 
   <footer>
-    Compiled from the shipped build of PDF Studio. Acrobat rows describe
+    Compiled from the shipped build of Platen PDF. Acrobat rows describe
     Acrobat&nbsp;Pro; several of them &mdash; redaction, comparison, preflight,
     accessibility, Bates numbering &mdash; are not in Acrobat&nbsp;Standard either.
   </footer>

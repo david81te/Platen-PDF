@@ -17,7 +17,7 @@ print("== single instance handoff ==")
 check("named pipes available", inst.available(), True)
 busy = inst.deliver(os.path.join(OUT, "fixture.pdf"))
 if busy:
-    print("  NOTE  a copy of PDF Studio is already running and owns the pipe;")
+    print("  NOTE  a copy of Platen PDF is already running and owns the pipe;")
     print("        close it before running this suite.")
     sys.exit(2)
 check("no delivery when nothing is listening", busy, False)

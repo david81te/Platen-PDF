@@ -326,7 +326,7 @@ def drive(window):
 
 
 api = StubbedApi()
-w = webview.create_window("PDF Studio buttons", url=UI, js_api=api,
+w = webview.create_window("Platen PDF buttons", url=UI, js_api=api,
                           width=1300, height=900, hidden=True)
 api.attach_window(w)
 webview.start(drive, w)

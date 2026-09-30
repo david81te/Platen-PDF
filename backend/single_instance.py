@@ -16,7 +16,7 @@ import getpass
 import os
 import threading
 
-PIPE_NAME = r"\\.\pipe\PDFStudio-%s" % (getpass.getuser() or "user")
+PIPE_NAME = r"\\.\pipe\PlatenPDF-%s" % (getpass.getuser() or "user")
 _ERROR_FILE_NOT_FOUND = 2
 _ERROR_PIPE_BUSY = 231
 
@@ -92,6 +92,6 @@ def serve(on_open) -> threading.Thread | None:
                 except Exception:
                     pass
 
-    thread = threading.Thread(target=loop, daemon=True, name="pdfstudio-ipc")
+    thread = threading.Thread(target=loop, daemon=True, name="platenpdf-ipc")
     thread.start()
     return thread

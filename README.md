@@ -1,7 +1,8 @@
-# PDF Studio
+# Platen PDF
 
-Copyright (c) 2026 David Willmore. All rights reserved. Proprietary; see
-[LICENSE](LICENSE) and [THIRD-PARTY.md](THIRD-PARTY.md).
+Copyright (c) 2026 David Willmore. Free software under the
+[GNU AGPL v3](LICENSE) — see [COPYRIGHT](COPYRIGHT) for why, and
+[THIRD-PARTY.md](THIRD-PARTY.md) for what it is built on.
 
 A standalone Windows PDF editor — Acrobat-style editing, conversion and signing,
 in a single `.exe` with no install and no subscription.
@@ -14,9 +15,9 @@ text editing is most reliable.
 ```powershell
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
-.\build.ps1              # folder build  -> dist\PDFStudio\PDFStudio.exe
-.\build.ps1 -Portable    # single file   -> dist\PDFStudio.exe
-.\package.ps1            # installer zip -> dist\PDFStudio-Setup.zip
+.\build.ps1              # folder build  -> dist\PlatenPDF\PlatenPDF.exe
+.\build.ps1 -Portable    # single file   -> dist\PlatenPDF.exe
+.\package.ps1            # installer zip -> dist\PlatenPDF-Setup.zip
 ```
 
 Both build scripts pipe the packaged exe's `--selftest` output rather than
@@ -36,7 +37,7 @@ Two flavours, same app:
 The single file unpacks itself to a temp folder on every launch, which is what
 makes it slow to start. Use the folder build unless you need portability.
 
-Run either directly, or pass a file: `PDFStudio.exe contract.pdf`. To run from
+Run either directly, or pass a file: `PlatenPDF.exe contract.pdf`. To run from
 source: `python app.py`.
 
 ## Icon
@@ -48,7 +49,7 @@ changing it:
 .venv\Scripts\python assets\make_app_icon.py
 ```
 
-That writes `assets/pdfstudio.ico` with 16-256px entries, which both spec files
+That writes `assets/platenpdf.ico` with 16-256px entries, which both spec files
 embed in the executable and which the file association points at. Detailed
 artwork softens below about 32px, which is the size Explorer's list view and
 the taskbar use, so check `assets/icon_sizes.png` after any change.
@@ -57,7 +58,7 @@ the taskbar use, so check `assets/icon_sizes.png` after any change.
 
 ```powershell
 .\build.ps1        # folder build
-.\package.ps1      # -> dist\PDFStudio-Setup.zip  (140 MB)
+.\package.ps1      # -> dist\PlatenPDF-Setup.zip  (140 MB)
 ```
 
 Send that one zip. The person extracts it and double-clicks **Install PDF
@@ -65,7 +66,7 @@ Studio**. Nothing else: no Python, no administrator password, no separate
 download for OCR.
 
 `package.ps1` re-runs the self-test before packaging and refuses to wrap a zip
-around an exe that fails it. It stages `dist\PDFStudio\` beside the two
+around an exe that fails it. It stages `dist\PlatenPDF\` beside the two
 installer files and a plain-English `Read me first.txt`, then writes the zip
 entries itself -- on Windows PowerShell 5.1 both `Compress-Archive` and
 `ZipFile::CreateFromDirectory` put backslashes in the entry names, which is
@@ -75,10 +76,10 @@ What the installer does, all within the user profile:
 
 - clears the mark Windows puts on downloaded files, which otherwise makes
   every file in the folder prompt or quietly fail
-- closes a running copy, then copies to `%LOCALAPPDATA%\Programs\PDF Studio`
+- closes a running copy, then copies to `%LOCALAPPDATA%\Programs\Platen PDF`
 - adds Start menu and desktop shortcuts
-- runs `--register`, putting PDF Studio in *Open with*
-- leaves `Uninstall PDF Studio.cmd` beside the program, which reverses all of
+- runs `--register`, putting Platen PDF in *Open with*
+- leaves `Uninstall Platen PDF.cmd` beside the program, which reverses all of
   the above
 
 No administrator rights, and nothing written outside the user profile and
@@ -86,14 +87,14 @@ No administrator rights, and nothing written outside the user profile and
 copy's self-test, uninstall -- and confirmed to leave the registry and
 shortcuts exactly as it found them.
 
-Running `Install PDF Studio` from inside Explorer's zip preview cannot work:
+Running `Install Platen PDF` from inside Explorer's zip preview cannot work:
 Windows copies out that one file and leaves the program behind. The installer
 recognises that case and says so instead of failing obscurely.
 
 ### Without the installer
 
-Both builds are self-contained, so a zip of `dist\PDFStudio\` or the single
-`dist\PDFStudio.exe` still works. The recipient just gets no shortcuts, no
+Both builds are self-contained, so a zip of `dist\PlatenPDF\` or the single
+`dist\PlatenPDF.exe` still works. The recipient just gets no shortcuts, no
 *Open with* entry and no uninstaller, and has to know to extract before
 running.
 
@@ -117,14 +118,14 @@ running.
   libraries.
 - **Too big to email** at 140 MB. Use OneDrive, SharePoint or Teams.
 
-Each person gets their own signatures (`%APPDATA%\PDFEditorPro`) and their own
+Each person gets their own signatures (`%APPDATA%\PlatenPDF`) and their own
 file associations.
 
 ## Opening PDFs from Explorer
 
 ```powershell
-.\dist\PDFStudio\PDFStudio.exe --register      # add to the Windows PDF apps
-.\dist\PDFStudio\PDFStudio.exe --unregister    # remove again
+.\dist\PlatenPDF\PlatenPDF.exe --register      # add to the Windows PDF apps
+.\dist\PlatenPDF\PlatenPDF.exe --unregister    # remove again
 ```
 
 Or use **File > Set as default PDF app...** in the app.
@@ -133,7 +134,7 @@ This registers under `HKEY_CURRENT_USER`, so it needs no administrator rights
 and affects only your account. It does **not** change your current default:
 since Windows 8 an application cannot make itself the default handler -- the
 choice lives in a `UserChoice` key that Windows protects with a hash it
-verifies. Registering adds PDF Studio to *Open with* and to *Settings > Apps >
+verifies. Registering adds Platen PDF to *Open with* and to *Settings > Apps >
 Default apps*, and the registration opens that screen so you can confirm.
 
 Opening several PDFs from Explorer does not start several copies: the first
@@ -314,7 +315,7 @@ are separate by necessity and drift is the obvious failure.
 To check a packaged build without a GUI:
 
 ```powershell
-.\dist\PDFStudio.exe --selftest
+.\dist\PlatenPDF.exe --selftest
 ```
 
 This confirms the bundled UI files and OCR models resolved inside the frozen
@@ -339,7 +340,7 @@ backend/
   convert.py        conversion in and out, OCR, compression
   decorate.py       watermarks, page numbers, headers, backgrounds
 ui/                 index.html, styles.css, app.js
-installer/          Install PDF Studio.cmd + install.ps1, packaged by package.ps1
+installer/          Install Platen PDF.cmd + install.ps1, packaged by package.ps1
 ```
 
 Note: every attribute on the `Api` object is private. pywebview walks the public

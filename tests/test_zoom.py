@@ -79,7 +79,7 @@ def drive(window):
 
 
 api = Api()
-w = webview.create_window("PDF Studio zoom", url=UI, js_api=api, width=1050, height=800)
+w = webview.create_window("Platen PDF zoom", url=UI, js_api=api, width=1050, height=800)
 api.attach_window(w)
 webview.start(drive, w)
 print("\nRESULT:", "PASS" if not fails else "FAIL %s" % fails)

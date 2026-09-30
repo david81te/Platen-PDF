@@ -124,7 +124,7 @@ def drive(window):
 
 
 api = Api()
-w = webview.create_window("PDF Studio objects", url=UI, js_api=api,
+w = webview.create_window("Platen PDF objects", url=UI, js_api=api,
                           width=1200, height=880, hidden=True)
 api.attach_window(w)
 webview.start(drive, w)

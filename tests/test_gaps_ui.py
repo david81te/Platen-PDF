@@ -134,7 +134,7 @@ def drive(window):
 
 
 api = Api()
-w = webview.create_window("PDF Studio gaps", url=UI, js_api=api,
+w = webview.create_window("Platen PDF gaps", url=UI, js_api=api,
                           width=1250, height=900, hidden=True)
 api.attach_window(w)
 webview.start(drive, w)

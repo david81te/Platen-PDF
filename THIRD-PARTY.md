@@ -1,8 +1,9 @@
 # Third-party components
 
-PDF Studio is original work by David Willmore, but it does its job by standing
+Platen PDF is original work by David Willmore, but it does its job by standing
 on open-source libraries. They keep their own copyright and their own licences;
-the notice in [LICENSE](LICENSE) covers only the code in this repository.
+the notice in [COPYRIGHT](COPYRIGHT) covers only the code in this repository,
+and [LICENSE](LICENSE) is the AGPL text that the whole thing is released under.
 
 ## The one with conditions attached
 
@@ -13,13 +14,16 @@ PyMuPDF does essentially all the PDF work in this program: opening, rendering,
 text extraction, in-place editing, annotations, redaction and saving. It is not
 a component that could be swapped out in an afternoon.
 
-Under the AGPL branch, distributing a program built on it to anyone outside
-your own organisation obliges you to offer them the complete corresponding
-source under the AGPL as well. Internal use inside one company is the ordinary
-case and is not what the clause is aimed at, which is why the permission in
-LICENSE is written the way it is. Selling PDF Studio, shipping it to clients or
-publishing the executable would be a different matter, and the route for that
-is a commercial licence from Artifex rather than a change of wording here.
+**This is why Platen PDF is AGPL.** Under the AGPL branch, distributing a
+program built on PyMuPDF obliges you to offer recipients the complete
+corresponding source under the AGPL too. Platen PDF is given away publicly, so
+that obligation applies, and it is met the only honest way: the whole source is
+published at https://github.com/david81te/Platen-PDF and every release is built
+from it.
+
+The alternative would have been a commercial licence from Artifex, which is the
+route to take if you ever want to ship this closed or sell it. Artifex Software
+Inc. is the exclusive agent for that.
 
 This is a plain description of the licence, not legal advice.
 
@@ -48,4 +52,4 @@ it lets the executables it produces carry whatever licence you choose. It is a
 build tool and no part of it ends up under your copyright either way.
 
 Microsoft Edge WebView2 renders the interface and is a Windows component the
-user already has; PDF Studio does not redistribute it.
+user already has; Platen PDF does not redistribute it.

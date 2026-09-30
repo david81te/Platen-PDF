@@ -1,16 +1,16 @@
-# Installs PDF Studio for the person running it. No administrator rights are
+# Installs Platen PDF for the person running it. No administrator rights are
 # needed and nothing outside the user profile is touched, so it works on a
-# locked-down machine and can be undone with Uninstall PDF Studio.cmd.
+# locked-down machine and can be undone with Uninstall Platen PDF.cmd.
 [CmdletBinding()]
 param(
-    [string]$Destination = (Join-Path $env:LOCALAPPDATA 'Programs\PDF Studio'),
+    [string]$Destination = (Join-Path $env:LOCALAPPDATA 'Programs\Platen PDF'),
     [switch]$NoShortcuts,
     [switch]$NoAssociation,
     [switch]$Quiet
 )
 
 $ErrorActionPreference = 'Stop'
-$AppName = 'PDF Studio'
+$AppName = 'Platen PDF'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 function Say([string]$text, [string]$colour = 'Gray') {
@@ -20,8 +20,8 @@ function Say([string]$text, [string]$colour = 'Gray') {
 # The payload sits either beside this script or one level up, depending on how
 # the zip was unpacked.
 $payload = $null
-foreach ($candidate in @((Join-Path $here 'PDFStudio'), $here, (Split-Path $here -Parent))) {
-    if ($candidate -and (Test-Path (Join-Path $candidate 'PDFStudio.exe'))) {
+foreach ($candidate in @((Join-Path $here 'PlatenPDF'), $here, (Split-Path $here -Parent))) {
+    if ($candidate -and (Test-Path (Join-Path $candidate 'PlatenPDF.exe'))) {
         $payload = $candidate
         break
     }
@@ -35,11 +35,11 @@ if (-not $payload) {
         Write-Host ""
         Write-Host "  Close this, then right-click the zip in your Downloads folder and"
         Write-Host "  choose Extract All. Open the folder that appears and run"
-        Write-Host "  Install PDF Studio from there."
+        Write-Host "  Install Platen PDF from there."
     } else {
-        Write-Host "  Could not find PDFStudio.exe next to this file." -ForegroundColor Red
+        Write-Host "  Could not find PlatenPDF.exe next to this file." -ForegroundColor Red
         Write-Host ""
-        Write-Host "  Install PDF Studio and the PDFStudio folder have to stay together."
+        Write-Host "  Install Platen PDF and the PlatenPDF folder have to stay together."
         Write-Host "  Extract the whole zip again and run it from there."
     }
     Write-Host ""
@@ -60,7 +60,7 @@ Get-ChildItem -LiteralPath $payload -Recurse -File -ErrorAction SilentlyContinue
     ForEach-Object { Unblock-File -LiteralPath $_.FullName -ErrorAction SilentlyContinue }
 
 # A running copy would lock the files we are about to replace.
-$running = Get-Process -Name 'PDFStudio' -ErrorAction SilentlyContinue
+$running = Get-Process -Name 'PlatenPDF' -ErrorAction SilentlyContinue
 if ($running) {
     Say "  Closing the copy that is already running..."
     $running | Stop-Process -Force
@@ -76,14 +76,14 @@ New-Item -ItemType Directory -Path $Destination -Force | Out-Null
 Say "  Copying files..."
 Copy-Item -Path (Join-Path $payload '*') -Destination $Destination -Recurse -Force
 # The installer scripts themselves do not belong in the installed copy.
-foreach ($leftover in @('Install PDF Studio.cmd', 'install.ps1', 'Read me first.txt')) {
+foreach ($leftover in @('Install Platen PDF.cmd', 'install.ps1', 'Read me first.txt')) {
     $stale = Join-Path $Destination $leftover
     if (Test-Path $stale) { Remove-Item -LiteralPath $stale -Force }
 }
 
-$exe = Join-Path $Destination 'PDFStudio.exe'
+$exe = Join-Path $Destination 'PlatenPDF.exe'
 if (-not (Test-Path $exe)) {
-    Write-Host "  The copy did not produce PDFStudio.exe." -ForegroundColor Red
+    Write-Host "  The copy did not produce PlatenPDF.exe." -ForegroundColor Red
     exit 1
 }
 
@@ -91,7 +91,7 @@ if (-not (Test-Path $exe)) {
 $uninstallPs1 = Join-Path $Destination 'uninstall.ps1'
 @"
 `$ErrorActionPreference = 'SilentlyContinue'
-Get-Process -Name 'PDFStudio' | Stop-Process -Force
+Get-Process -Name 'PlatenPDF' | Stop-Process -Force
 Start-Sleep -Seconds 1
 & '$exe' --unregister
 Remove-Item '$(Join-Path ([Environment]::GetFolderPath('Programs')) "$AppName.lnk")'
@@ -99,14 +99,14 @@ Remove-Item '$(Join-Path ([Environment]::GetFolderPath('Desktop')) "$AppName.lnk
 # The folder cannot delete itself while this script is running out of it, so
 # hand the job to a second process that waits for this one to exit.
 Start-Process powershell -ArgumentList '-NoProfile','-Command',"Start-Sleep -Seconds 2; Remove-Item -LiteralPath '$Destination' -Recurse -Force"
-Write-Host 'PDF Studio has been removed.'
+Write-Host 'Platen PDF has been removed.'
 Start-Sleep -Seconds 2
 "@ | Set-Content -LiteralPath $uninstallPs1 -Encoding UTF8
 
 @"
 @echo off
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0uninstall.ps1"
-"@ | Set-Content -LiteralPath (Join-Path $Destination 'Uninstall PDF Studio.cmd') -Encoding ASCII
+"@ | Set-Content -LiteralPath (Join-Path $Destination 'Uninstall Platen PDF.cmd') -Encoding ASCII
 
 if (-not $NoShortcuts) {
     Say "  Adding shortcuts..."
@@ -124,7 +124,7 @@ if (-not $NoShortcuts) {
 }
 
 if (-not $NoAssociation) {
-    # Puts PDF Studio in the "Open with" list. Windows will not let any
+    # Puts Platen PDF in the "Open with" list. Windows will not let any
     # program make itself the default; that is a choice only you can make.
     Say "  Registering as a PDF application..."
     & $exe --register | Out-Null
@@ -140,7 +140,7 @@ Say ""
 Say "  To open PDFs with it by default, use File > Set as default PDF app"
 Say "  inside the program."
 Say ""
-Say "  To remove it later, run Uninstall PDF Studio.cmd in:"
+Say "  To remove it later, run Uninstall Platen PDF.cmd in:"
 Say "  $Destination"
 Say ""
 if (-not $Quiet) { Read-Host "  Press Enter to close" | Out-Null }

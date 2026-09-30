@@ -1,4 +1,4 @@
-# Windows version resource, embedded in PDFStudio.exe by both spec files.
+# Windows version resource, embedded in PlatenPDF.exe by both spec files.
 # It is what right-click > Properties > Details shows, and the only place a
 # recipient can check who wrote the program before running it.
 VSVersionInfo(
@@ -17,13 +17,14 @@ VSVersionInfo(
       StringTable(
         '040904B0',
         [StringStruct('CompanyName', 'David Willmore'),
-         StringStruct('FileDescription', 'PDF Studio'),
+         StringStruct('FileDescription', 'Platen PDF'),
          StringStruct('FileVersion', '1.0.0.0'),
-         StringStruct('InternalName', 'PDFStudio'),
+         StringStruct('InternalName', 'PlatenPDF'),
          StringStruct('LegalCopyright',
-                      'Copyright (c) 2026 David Willmore. All rights reserved.'),
-         StringStruct('OriginalFilename', 'PDFStudio.exe'),
-         StringStruct('ProductName', 'PDF Studio'),
+                      'Copyright (c) 2026 David Willmore. '
+                      'Free software under the GNU AGPL v3.'),
+         StringStruct('OriginalFilename', 'PlatenPDF.exe'),
+         StringStruct('ProductName', 'Platen PDF'),
          StringStruct('ProductVersion', '1.0.0')])
     ]),
     VarFileInfo([VarStruct('Translation', [0x0409, 1200])])

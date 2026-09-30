@@ -427,3 +427,5 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
 .about-l { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
 .about-l td { padding: 4px 0; border-top: 1px solid var(--line); vertical-align: top; }
 .about-l td:last-child { color: var(--muted); text-align: right; padding-left: 16px; }
+.about-lic { color: var(--muted); font-size: .92rem; margin-top: .55rem; }
+.about-lic b { color: var(--ink); font-weight: 500; word-break: break-all; }

@@ -115,7 +115,7 @@ def drive(window):
 # The real Api goes in, otherwise the page fills with "unknown action" toasts
 # and the screenshot no longer shows what the window really looks like.
 api = Api()
-w = webview.create_window("PDF Studio", url=UI, js_api=api, width=1100, height=800)
+w = webview.create_window("Platen PDF", url=UI, js_api=api, width=1100, height=800)
 api.attach_window(w)
 titlebar.attach(w)
 webview.start(drive, w)

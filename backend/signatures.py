@@ -19,13 +19,37 @@ from PIL import Image
 
 from .session import PdfError
 
-APP_DIR = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"),
-                       "PDFEditorPro")
+_APPDATA = os.environ.get("APPDATA") or os.path.expanduser("~")
+APP_DIR = os.path.join(_APPDATA, "PlatenPDF")
+# Where signatures lived when the program was called PDF Studio. Anyone who
+# used it before the rename still has their signatures here.
+LEGACY_DIR = os.path.join(_APPDATA, "PDFEditorPro")
 SIG_DIR = os.path.join(APP_DIR, "signatures")
 INDEX = os.path.join(SIG_DIR, "index.json")
 
 
+def _migrate_legacy() -> None:
+    """Carry a pre-rename signature library over, once.
+
+    Only runs when the new folder does not exist yet, so it can never
+    overwrite signatures saved under the new name.
+    """
+    if os.path.exists(APP_DIR) or not os.path.isdir(LEGACY_DIR):
+        return
+    try:
+        os.rename(LEGACY_DIR, APP_DIR)
+    except OSError:
+        # A locked file or a cross-volume profile: fall back to copying, and
+        # leave the old folder alone rather than risk losing the only copy.
+        import shutil
+        try:
+            shutil.copytree(LEGACY_DIR, APP_DIR)
+        except OSError:
+            pass
+
+
 def _ensure() -> None:
+    _migrate_legacy()
     os.makedirs(SIG_DIR, exist_ok=True)
 
 

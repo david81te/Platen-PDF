@@ -66,7 +66,7 @@ def drive(window):
 
 
 api = Api()
-w = webview.create_window("PDF Studio speed", url=UI, js_api=api,
+w = webview.create_window("Platen PDF speed", url=UI, js_api=api,
                           width=1250, height=880, hidden=True)
 api.attach_window(w)
 webview.start(drive, w)
