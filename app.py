@@ -8,7 +8,7 @@ import sys
 
 import webview
 
-from backend import shell_integration, single_instance
+from backend import shell_integration, single_instance, titlebar
 from backend.api import Api
 
 APP_NAME = "PDF Studio"
@@ -110,6 +110,10 @@ def main() -> None:
         text_select=False,
     )
     api.attach_window(window)
+
+    # Windows draws the caption bar itself, and pywebview ties it to the system
+    # theme - so on a PC set to Light mode it sits white above the dark app.
+    titlebar.attach(window)
 
     if startup:
         api._startup_path = os.path.abspath(startup[0])

@@ -287,12 +287,17 @@ shrunk to an illegible size.
 .venv\Scripts\python tests\test_edge.py     # edge cases and error paths
 .venv\Scripts\python tests\test_flows.py    # multi-step workflows
 .venv\Scripts\python tests\test_shell.py    # file association + single instance
+.venv\Scripts\python tests\test_titlebar.py # the caption bar is dark, checked in pixels
 ```
 
 `make_fixture.py` needs Word; the rest run against the PDF it produces.
 `test_ui.py` opens the real window and drives `app.js` through `evaluate_js`.
 It never synthesises mouse or keyboard input, so it cannot disturb whatever
 else is open on the desktop — do not replace it with input automation.
+
+`test_titlebar.py` is the one exception to being invisible: it raises the window
+with `SWP_NOACTIVATE` -- which does not move focus -- long enough to photograph
+the caption, because the whole point is what the pixels look like.
 
 To check a packaged build without a GUI:
 
@@ -314,6 +319,7 @@ backend/
   fonts.py          font matching and ToUnicode repair
   pages.py          page organisation
   annots.py         markup, shapes, ink, images, links
+  titlebar.py       dark window caption, overriding the system theme
   signatures.py     signature library and flattened placement
   forms.py          form fields
   security.py       passwords and redaction
