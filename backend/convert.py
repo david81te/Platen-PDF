@@ -420,7 +420,13 @@ def _word_export(paths: list[str], out_dir: str) -> list[str]:
 
     def app(name: str):
         if name not in apps:
-            handle = win32.Dispatch(name + ".Application")
+            # DispatchEx, never Dispatch. Dispatch hands back the copy of Word
+            # or Excel the user already has open, and everything below is then
+            # done to their live session: their workbook hidden by
+            # Visible = False, their application shut down by the Quit() in the
+            # finally, with whatever they had unsaved. DispatchEx always starts
+            # a private instance, so a conversion cannot touch their work.
+            handle = win32.DispatchEx(name + ".Application")
             try:
                 handle.Visible = False
             except Exception:
