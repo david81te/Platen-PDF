@@ -29,8 +29,13 @@
 <meta name="twitter:description" content="Edit PDF text in place, sign, convert and OCR. Free, offline, no subscription. Your files never leave your PC.">
 <meta name="twitter:image" content="https://freepdf4you.com/og-image.png">
 
-<link rel="icon" href="/favicon.ico" sizes="any">
-<link rel="apple-touch-icon" href="/logo.png">
+<!-- sizes="any" belongs to scalable icons (SVG). Declaring it on an .ico makes
+     Chrome skip the file and fall back to the generic globe, so the sizes here
+     are the ones the file genuinely contains. -->
+<link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
+<link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/icon-180.png">
 
 <style>
 :root {
