@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import functools
 import os
+import threading
 import traceback
 
 import pymupdf as fitz
@@ -22,11 +23,24 @@ ANY_INPUT = ("Documents (*.pdf;*.doc;*.docx;*.rtf;*.txt;*.xls;*.xlsx;*.csv;"
              "*.ppt;*.pptx;*.png;*.jpg;*.jpeg;*.tif;*.tiff;*.bmp)",)
 
 
+# pywebview runs every call from JavaScript on its own thread, so two endpoints
+# can reach the same fitz.Document at once. When one of them swaps the document
+# out mid-call, PyMuPDF answers the other with "document closed" - which is
+# exactly the intermittent failure this lock removes. Serialising the whole
+# surface costs concurrency we were never able to use safely: the document is a
+# single mutable object and the undo stack assumes one writer at a time.
+#
+# Re-entrant because a few endpoints legitimately call one another - save()
+# delegates to save_as(), and a plain Lock would deadlock on that.
+_LOCK = threading.RLock()
+
+
 def endpoint(fn):
     @functools.wraps(fn)
     def wrapper(self, *args, **kwargs):
         try:
-            return {"ok": True, "data": fn(self, *args, **kwargs)}
+            with _LOCK:
+                return {"ok": True, "data": fn(self, *args, **kwargs)}
         except (PdfError, NoDocument, ValueError) as exc:
             return {"ok": False, "error": str(exc)}
         except Exception as exc:  # unexpected: log for diagnosis, report cleanly
