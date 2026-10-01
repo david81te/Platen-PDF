@@ -20,7 +20,13 @@ from PIL import Image
 from .session import PdfError
 
 _APPDATA = os.environ.get("APPDATA") or os.path.expanduser("~")
-APP_DIR = os.path.join(_APPDATA, "PlatenPDF")
+
+# PLATENPDF_DATA_DIR redirects the whole signature library somewhere else.
+# It exists for the tests: without it they add, rename and delete signatures
+# in the real library belonging to whoever is running them, and a test that
+# dies before its cleanup leaves its litter in a person's saved signatures.
+APP_DIR = os.environ.get("PLATENPDF_DATA_DIR") or os.path.join(_APPDATA, "PlatenPDF")
+
 # Where signatures lived when the program was called PDF Studio. Anyone who
 # used it before the rename still has their signatures here.
 LEGACY_DIR = os.path.join(_APPDATA, "PDFEditorPro")
@@ -34,6 +40,8 @@ def _migrate_legacy() -> None:
     Only runs when the new folder does not exist yet, so it can never
     overwrite signatures saved under the new name.
     """
+    if os.environ.get("PLATENPDF_DATA_DIR"):
+        return      # a redirected library has nothing to inherit
     if os.path.exists(APP_DIR) or not os.path.isdir(LEGACY_DIR):
         return
     try:

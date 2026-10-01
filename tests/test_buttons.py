@@ -13,6 +13,7 @@ import time
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import sandbox  # noqa: F401  - redirects the signature library; must precede backend
 
 import pymupdf as fitz
 import webview

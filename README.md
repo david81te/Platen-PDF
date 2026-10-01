@@ -61,8 +61,8 @@ the taskbar use, so check `assets/icon_sizes.png` after any change.
 .\package.ps1      # -> dist\PlatenPDF-Setup.zip  (140 MB)
 ```
 
-Send that one zip. The person extracts it and double-clicks **Install PDF
-Studio**. Nothing else: no Python, no administrator password, no separate
+Send that one zip. The person extracts it and double-clicks **Install Platen
+PDF**. Nothing else: no Python, no administrator password, no separate
 download for OCR.
 
 `package.ps1` re-runs the self-test before packaging and refuses to wrap a zip
@@ -300,6 +300,13 @@ shrunk to an illegible size.
 It never synthesises mouse or keyboard input, so it cannot disturb whatever
 else is open on the desktop — do not replace it with input automation.
 
+Any suite that touches signatures must `import sandbox` **before** importing
+anything from `backend`. That points the library at a temp folder through
+`PLATENPDF_DATA_DIR`. Without it the tests add, rename and delete entries in
+the real library of whoever runs them, and the cleanup at the end of a suite
+only runs on the normal exit path - a watchdog timeout leaves litter behind.
+This has bitten us: a test once deleted a real signature by matching on name.
+
 `test_titlebar.py` is the one test that photographs the screen, because the
 whole point is what the caption looks like. It raises the window with
 `SWP_NOACTIVATE`, which changes z-order without moving focus, then checks
@@ -333,6 +340,7 @@ backend/
   pages.py          page organisation
   annots.py         markup, shapes, ink, images, links
   titlebar.py       dark window caption, overriding the system theme
+  signatures.py     signature library (PLATENPDF_DATA_DIR redirects it)
   version.py        name, version and copyright, shared by app and About box
   signatures.py     signature library and flattened placement
   forms.py          form fields

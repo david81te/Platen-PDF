@@ -3,8 +3,8 @@
 #   .\build.ps1            fast folder build  -> dist\PlatenPDF\PlatenPDF.exe
 #   .\build.ps1 -Portable  single file        -> dist\PlatenPDF.exe
 #
-# The folder build starts in about a second and is the one to use when PDF
-# Studio is your default PDF application; the single file is easier to copy
+# The folder build starts in about a second and is the one to use when Platen
+# PDF is your default PDF application; the single file is easier to copy
 # around but unpacks itself on every launch.
 param([switch]$Portable)
 

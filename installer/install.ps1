@@ -87,6 +87,27 @@ if (-not (Test-Path $exe)) {
     exit 1
 }
 
+# Prove the installed copy actually works before claiming success. An
+# extraction that stopped part way through leaves the exe present but its
+# libraries missing, and without this the installer would cheerfully finish
+# and the failure would surface later as a program that will not start.
+# Piping is what makes PowerShell wait: the exe is windowed, so calling it
+# plainly returns at once and tests nothing.
+Say "  Checking the installed copy..."
+$check = (& $exe --selftest 2>&1 | Out-String)
+if ($check -notmatch 'SELFTEST: PASS') {
+    Write-Host ""
+    Write-Host "  The installed copy did not pass its own check." -ForegroundColor Red
+    Write-Host ""
+    Write-Host "  This usually means the zip was not fully extracted. Delete the"
+    Write-Host "  extracted folder, unzip it again, and run this once more."
+    Write-Host "  Extracting somewhere short, like your Downloads folder, avoids"
+    Write-Host "  the Windows path-length limit that causes it."
+    Write-Host ""
+    if (-not $Quiet) { Read-Host "  Press Enter to close" | Out-Null }
+    exit 1
+}
+
 # Leave an uninstaller behind so this is reversible without hunting for files.
 $uninstallPs1 = Join-Path $Destination 'uninstall.ps1'
 @"

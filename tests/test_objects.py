@@ -1,6 +1,7 @@
 """Placed objects must stay selectable: click, drag, resize, then lock."""
 import os, sys, time, threading
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import sandbox  # noqa: F401  - redirects the signature library; must precede backend
 import webview
 from backend.api import Api
 from backend import signatures

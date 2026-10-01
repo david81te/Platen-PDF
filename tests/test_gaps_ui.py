@@ -2,6 +2,7 @@
 import io, os, sys, time, threading
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import sandbox  # noqa: F401  - redirects the signature library; must precede backend
 import webview
 from backend import signatures
 from backend.api import Api

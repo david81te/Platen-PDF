@@ -74,10 +74,20 @@ def drive(window):
     # in front of the camera. A grab is blind to what it captures: if anything
     # else covers these coordinates it lands on disk instead, and whatever the
     # user happens to have open is none of this test's business.
+    # Probe the whole rectangle, not just the caption. One point only proves
+    # that point is ours - a window covering the rest still lands in the saved
+    # image, which is how a screenshot here once caught an unrelated browser.
     left, top, right, bottom = rect(hwnd)
-    probe = ((left + right) // 2, top + 12)
+    probes = [((left + right) // 2, top + 12),
+              (left + 30, top + 12), (right - 150, top + 12),
+              (left + 30, bottom - 30), (right - 30, bottom - 30),
+              ((left + right) // 2, (top + bottom) // 2)]
+
+    def ours():
+        return all(window_at(x, y) == hwnd for x, y in probes)
+
     for _ in range(20):
-        if window_at(*probe) == hwnd:
+        if ours():
             break
         # Re-assert it: the WebView2 host finishes initialising after we first
         # ask, and puts itself back in the z-order when it does.
@@ -86,7 +96,7 @@ def drive(window):
                                           60, 60, 1100, 800, NOACTIVATE_SHOW)
         time.sleep(0.5)
 
-    if window_at(*probe) != hwnd:
+    if not ours():
         # Environmental, not a regression: another topmost window is in the
         # way. Say so and check nothing rather than photograph it.
         print("  SKIP something else is in front; nothing captured", flush=True)
