@@ -59,8 +59,8 @@ def drive(window):
     handles = titlebar._our_windows()
     check("a top-level window was found", len(handles), lambda n: n >= 1)
     check("paint() reports success", titlebar.paint(), True)
-    check("pywebview's own check now says dark",
-          titlebar.force_dark_detection(), True)
+    check("we own pywebview's theme handler",
+          titlebar.force_dark_chrome(), True)
 
     print("")
     print("== and the caption is actually dark on screen ==")
@@ -110,12 +110,15 @@ def drive(window):
         print("  caption pixels:", ["#%02x%02x%02x" % p for p in samples])
         check("caption is dark, not white",
               max(sum(p) / 3 for p in samples), lambda v: v < 90)
+        # Tight tolerances on purpose. These were 12 and 20, and that slack is
+        # what let WebView2's colour management drift the menu bar to #282a2d
+        # unnoticed while this test went on passing. Both values are exact now.
         check("caption matches the app's --panel (#242a35)", samples[0],
-              lambda p: all(abs(a - b) <= 12 for a, b in zip(p, (0x24, 0x2a, 0x35))))
+              lambda p: all(abs(a - b) <= 1 for a, b in zip(p, (0x24, 0x2a, 0x35))))
         menu = shot.getpixel((int(width * 0.5), 45))[:3]
         print("  menu bar pixel: #%02x%02x%02x" % menu)
         check("no white seam between caption and menu bar",
-              abs(sum(menu) / 3 - sum(samples[0]) / 3), lambda d: d < 20)
+              abs(sum(menu) / 3 - sum(samples[0]) / 3), lambda d: d < 2)
 
     ctypes.windll.user32.SetWindowPos(wintypes.HWND(hwnd), wintypes.HWND(HWND_NOTOPMOST),
                                       0, 0, 0, 0, NOMOVE_NOSIZE_NOACTIVATE)

@@ -20,6 +20,15 @@ DWMWA_USE_IMMERSIVE_DARK_MODE = 20
 DWMWA_BORDER_COLOR = 34
 DWMWA_CAPTION_COLOR = 35
 DWMWA_TEXT_COLOR = 36
+DWMWA_SYSTEMBACKDROP_TYPE = 38
+
+# 1 is DWMSBT_NONE, a plain solid window; 2 is Mica, which pywebview switches
+# on with its dark branch. We paint the caption an exact colour, so a backdrop
+# effect underneath it has nothing to contribute and could only fight it.
+# (Measured, not assumed: Mica was *not* what tinted the page - toggling this
+# between 0, 1 and 2 moved no pixel. That was WebView2's colour management,
+# handled in backend/__init__.py.)
+BACKDROP_NONE = 1
 
 
 def _colorref(hex_rgb: str) -> int:
@@ -73,22 +82,35 @@ def paint(hwnd: int | None = None) -> bool:
         # Attribute 20 is the one that matters; the rest are decoration.
         if _set(target, DWMWA_USE_IMMERSIVE_DARK_MODE, 1):
             painted = True
+        # Must come with the dark caption, never after it by chance: pywebview
+        # pairs dark with Mica, and Mica is what tints the page.
+        _set(target, DWMWA_SYSTEMBACKDROP_TYPE, BACKDROP_NONE)
         _set(target, DWMWA_CAPTION_COLOR, CAPTION)
         _set(target, DWMWA_TEXT_COLOR, TEXT)
         _set(target, DWMWA_BORDER_COLOR, BORDER)
     return painted
 
 
-def force_dark_detection() -> bool:
-    """Make pywebview's own light/dark check always answer "dark".
+def force_dark_chrome() -> bool:
+    """Take over pywebview's own theme handler.
 
-    It runs this while building the form, before anything is on screen, so the
-    caption is dark from the first frame with no white flash - and it runs it
-    again whenever Windows reports a theme change, which would otherwise undo
-    what paint() did. Guarded because it is someone else's private class.
+    Replacing the handler rather than lying to its light/dark check matters:
+    its dark branch also switches on Mica, which tints the whole window from
+    the wallpaper and turns white PDF pages cream. This version sets the dark
+    caption without it, runs while the form is being built so there is no white
+    flash on the first frame, and runs again whenever Windows reports a theme
+    change - which would otherwise undo everything paint() did.
+
+    Guarded because it reaches into someone else's private class.
     """
     try:
         from webview.platforms import winforms
+
+        def dark_chrome(form):
+            paint(form.Handle.ToInt32())
+
+        winforms.BrowserView.BrowserForm.update_title_bar_theme = dark_chrome
+        # Kept consistent so anything else asking gets the same answer.
         winforms.BrowserView.BrowserForm.is_dark_theme = lambda self: True
         return True
     except Exception:
@@ -97,7 +119,7 @@ def force_dark_detection() -> bool:
 
 def attach(window) -> None:
     """Keep the caption dark for the life of this window."""
-    force_dark_detection()
+    force_dark_chrome()
     window.events.shown += lambda: paint()
     # Windows repaints the frame on a restore, and a maximise swaps in the
     # frameless caption, so re-assert the colours after both.
