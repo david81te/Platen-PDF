@@ -15,11 +15,9 @@ dependencies — Vercel serves this directory as-is.
 | `sitemap.xml` | one URL; update `lastmod` when the page changes materially |
 | `vercel.json` | caching and security headers |
 
-## Two links must be filled in before this goes live
+## The download link
 
-1. **Donate** — `index.html` has `https://ko-fi.com/REPLACE-ME`. Swap in the real
-   Ko-fi, Buy Me a Coffee, GitHub Sponsors or Stripe payment link.
-2. **Download** — points at
+1. **Download** — points at
    `https://github.com/david81te/Platen-PDF/releases/latest/download/PlatenPDF-Setup.zip`.
    That URL only works once the repository is public **and** a release exists
    with the zip attached. A private repository returns 404 to visitors.
