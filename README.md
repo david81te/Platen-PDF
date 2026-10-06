@@ -293,12 +293,21 @@ shrunk to an illegible size.
 .venv\Scripts\python tests\test_shell.py    # file association + single instance
 .venv\Scripts\python tests\test_titlebar.py # the caption bar is dark, checked in pixels
 .venv\Scripts\python tests\test_about.py    # copyright is present and consistent
+.venv\Scripts\python tests\test_updates.py  # update notices, and the version comparison
+.venv\Scripts\python tests\test_account.py  # optional account (needs Supabase keys, see below)
 ```
 
 `make_fixture.py` needs Word; the rest run against the PDF it produces.
 `test_ui.py` opens the real window and drives `app.js` through `evaluate_js`.
 It never synthesises mouse or keyboard input, so it cannot disturb whatever
 else is open on the desktop — do not replace it with input automation.
+
+`test_account.py` talks to the real Supabase project, because what is worth
+testing is whether our requests are shaped the way the service expects - a
+mock would only prove the mock agrees with itself. It needs `SUPABASE_URL`,
+`SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_KEY` in the environment, creates a
+throwaway account, and redirects the stored session through
+`PLATENPDF_CRED_TARGET` so it cannot sign the real user out.
 
 Any suite that touches signatures must `import sandbox` **before** importing
 anything from `backend`. That points the library at a temp folder through
@@ -341,6 +350,9 @@ backend/
   annots.py         markup, shapes, ink, images, links
   titlebar.py       dark window caption, overriding the system theme
   signatures.py     signature library (PLATENPDF_DATA_DIR redirects it)
+  cloud.py          Supabase project URL and publishable key
+  account.py        optional sign-in; session in Windows Credential Manager
+  updates.py        checks for a newer release, once a day, switchable off
   version.py        name, version and copyright, shared by app and About box
   signatures.py     signature library and flattened placement
   forms.py          form fields
