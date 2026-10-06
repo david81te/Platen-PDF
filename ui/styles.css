@@ -117,7 +117,13 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
 #viewer { flex: 1; position: relative; overflow: auto; background: #12151b; }
 #stage { display: none; padding: 22px; min-height: 100%; }
 #stage.on { display: grid; place-items: start center; }
-#pagewrap { position: relative; box-shadow: 0 10px 40px #000a; line-height: 0; }
+/* No line-height: 0 here. It was guarding against the few pixels of space an
+   inline image leaves beneath it, which #pageimg already avoids by being
+   display: block - and because line-height inherits, every control drawn over
+   the page got a zero-height line box. Buttons in the sticky-note bubble ended
+   up shorter than their own text, so the red of Delete stopped above the
+   bottom of the letters. */
+#pagewrap { position: relative; box-shadow: 0 10px 40px #000a; }
 #pageimg { display: block; max-width: none; }
 #overlay { position: absolute; inset: 0; }
 #scratch { position: absolute; inset: 0; pointer-events: none; }
