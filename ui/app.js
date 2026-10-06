@@ -2096,6 +2096,45 @@ if (zoompick) {
   };
 }
 
+/* ---------- the right-hand panel ---------- */
+// It is empty or near-empty for most of the time people spend in the program,
+// so it folds away and gives the width to the document. The choice is
+// remembered; being asked to re-hide it on every launch would be worse than
+// not having the button.
+
+function setInspector(collapsed, redraw) {
+  const panel = $('inspector');
+  const button = $('insp-toggle');
+  if (!panel || !button) return;
+  panel.classList.toggle('collapsed', collapsed);
+  button.setAttribute('aria-expanded', String(!collapsed));
+  button.title = collapsed ? 'Show panel' : 'Hide panel';
+  try {
+    localStorage.setItem('inspectorCollapsed', collapsed ? '1' : '0');
+  } catch (e) {
+    // Private browsing or blocked storage: the panel still works, it just
+    // forgets. Not worth failing the toggle over.
+  }
+  // The stage is a different width now. A page drawn to fit has to be redrawn
+  // against the new width, and no resize event fires for a layout change.
+  if (redraw && S.info && S.zoomMode !== 'fixed') drawPage();
+}
+
+function restoreInspector() {
+  let collapsed = false;
+  try {
+    collapsed = localStorage.getItem('inspectorCollapsed') === '1';
+  } catch (e) { /* see above */ }
+  setInspector(collapsed, false);
+}
+
+if ($('insp-toggle')) {
+  $('insp-toggle').onclick = () => {
+    setInspector(!$('inspector').classList.contains('collapsed'), true);
+  };
+}
+restoreInspector();
+
 // Re-fit when the window changes size, which is what maximising does.
 let resizeTimer = null;
 window.addEventListener('resize', () => {

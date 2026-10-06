@@ -129,6 +129,26 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
 #inspector {
   width: 254px; flex: 0 0 254px; overflow-y: auto;
   background: var(--panel); border-left: 1px solid var(--line); padding: 10px;
+  /* No transition on the width. Animating it re-lays-out the document beside
+     it on every frame, and the page has to be redrawn at the end anyway, so
+     the slide buys nothing and costs a stutter. */
+}
+/* Collapsed leaves a narrow rail rather than nothing, so the way back is
+   always on screen. A panel that vanishes completely is a panel people
+   cannot find again. */
+#inspector.collapsed { width: 30px; flex: 0 0 30px; padding: 8px 3px; overflow: hidden; }
+#inspector.collapsed #insp-body { display: none; }
+#insp-toggle {
+  display: block; width: 24px; height: 24px; padding: 0; margin: 0 0 6px auto;
+  background: transparent; border: 1px solid transparent; border-radius: 5px;
+  color: var(--muted); cursor: pointer; line-height: 0;
+}
+#insp-toggle:hover { background: var(--panel-2); border-color: var(--line); color: var(--ink); }
+#inspector.collapsed #insp-toggle { margin: 0 auto; }
+#insp-toggle svg { transition: transform .14s ease; }
+#inspector.collapsed #insp-toggle svg { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) {
+  #insp-toggle svg { transition: none; }
 }
 #inspector h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin-bottom: 8px; }
 .field { margin-bottom: 9px; }

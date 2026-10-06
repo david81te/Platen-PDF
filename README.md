@@ -293,6 +293,7 @@ shrunk to an illegible size.
 .venv\Scripts\python tests\test_shell.py    # file association + single instance
 .venv\Scripts\python tests\test_titlebar.py # the caption bar is dark, checked in pixels
 .venv\Scripts\python tests\test_about.py    # copyright is present and consistent
+.venv\Scripts\python tests\test_sidebar.py  # the right panel folds away and gives back the width
 .venv\Scripts\python tests\test_updates.py  # update notices, and the version comparison
 .venv\Scripts\python tests\test_account.py  # optional account (needs Supabase keys, see below)
 ```
@@ -301,6 +302,12 @@ shrunk to an illegible size.
 `test_ui.py` opens the real window and drives `app.js` through `evaluate_js`.
 It never synthesises mouse or keyboard input, so it cannot disturb whatever
 else is open on the desktop — do not replace it with input automation.
+
+The right-hand panel remembers whether it is collapsed, in `localStorage`,
+which survives between runs because the app and the tests share one WebView2
+profile. Any suite that measures widths must clear `inspectorCollapsed` and
+call `restoreInspector()` first, or a previous session silently changes what
+it measures - `test_zoom` failed exactly that way once.
 
 `test_account.py` talks to the real Supabase project, because what is worth
 testing is whether our requests are shaped the way the service expects - a
