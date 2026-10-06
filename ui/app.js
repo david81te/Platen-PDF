@@ -1273,6 +1273,95 @@ async function loadLinks() {
 }
 
 
+/* ---------- the optional account ---------- */
+// Signing in is never required. The line shown when signed out says what it
+// would buy you and nothing more; the signature list works identically either
+// way, and someone who never signs in should not feel nagged.
+
+async function renderAccount() {
+  const strip = $('account-strip');
+  if (!strip) return;
+  const who = await run('account_status');
+  if (!who || !who.signed_in) {
+    strip.innerHTML =
+      '<div class="say">Signatures are saved on this PC. ' +
+      '<b>Sign in to use them on your phone too.</b></div>' +
+      '<div class="acts"><button id="acct-in">Sign in</button></div>';
+    $('acct-in').onclick = promptSignIn;
+    return;
+  }
+  strip.innerHTML =
+    '<div class="who">Signed in as&nbsp;<b>' + escapeHtml(who.email || '') + '</b></div>' +
+    '<div class="acts"><button id="acct-sync">Sync now</button>' +
+    '<button id="acct-out">Sign out</button></div>' +
+    '<div class="state" id="acct-state"></div>';
+  $('acct-sync').onclick = () => runSync(true);
+  $('acct-out').onclick = async () => {
+    await run('account_sign_out');
+    toast('Signed out. Your signatures stay on this PC.');
+    renderAccount();
+  };
+}
+
+function describeSync(r) {
+  if (!r || r.signed_in === false) return '';
+  const bits = [];
+  if (r.uploaded) bits.push(r.uploaded + ' sent');
+  if (r.downloaded) bits.push(r.downloaded + ' received');
+  if (r.renamed_here || r.renamed_there) bits.push('names updated');
+  if (r.removed_here || r.removed_there) bits.push('deletions applied');
+  return bits.length ? bits.join(', ') : 'Everything already matches.';
+}
+
+async function runSync(loud) {
+  const state = $('acct-state');
+  if (state) state.textContent = 'Syncing…';
+  const r = await run('sync_now');
+  if (!r) { if (state) state.textContent = ''; return; }
+  await loadSigs();
+  const problems = (r.problems || []).length;
+  if (state) {
+    state.className = 'state' + (problems ? ' bad' : '');
+    state.textContent = problems
+      ? problems + ' item(s) could not sync. Try again shortly.'
+      : describeSync(r);
+  }
+  if (loud && !problems) toast(describeSync(r));
+  if (problems) console.warn('sync problems', r.problems);
+}
+
+function promptSignIn() {
+  modal('Sign in',
+    '<p class="hint">We will email you a code. There is no password to choose ' +
+    'or remember.</p>' +
+    '<div class="field"><label>Email address</label>' +
+    '<input name="email" type="email" placeholder="you@example.com"></div>' +
+    '<p class="hint">Your signature images are stored in your account so your ' +
+    'devices share them. <b>Your documents are never uploaded.</b></p>',
+    async (v) => {
+      const sent = await run('account_request_code', (v.email || '').trim());
+      if (!sent) return;
+      promptCode(sent.sent_to);
+    }, 'Email me a code');
+}
+
+function promptCode(email) {
+  modal('Enter your code',
+    '<p class="hint">Sent to <b>' + escapeHtml(email) + '</b>. It expires in ' +
+    'ten minutes.</p>' +
+    '<div class="field"><label>Code from the email</label>' +
+    '<input name="code" class="codebox" autocomplete="one-time-code"></div>',
+    async (v) => {
+      const done = await run('account_verify_code', email, (v.code || '').trim());
+      if (!done) { promptCode(email); return; }
+      toast('Signed in as ' + done.email);
+      await renderAccount();
+      await loadSigs();
+      const state = $('acct-state');
+      if (state) state.textContent = describeSync(done.sync);
+    }, 'Sign in');
+}
+
 async function loadSigs() {
   const list = $('sig-list');
   const items = await run('sig_list');
@@ -2130,6 +2219,7 @@ if ($('insp-toggle')) {
   };
 }
 restoreInspector();
+renderAccount();
 
 // Re-fit when the window changes size, which is what maximising does.
 let resizeTimer = null;

@@ -455,3 +455,21 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
 .about-l td:last-child { color: var(--muted); text-align: right; padding-left: 16px; }
 .about-lic { color: var(--muted); font-size: .92rem; margin-top: .55rem; }
 .about-lic b { color: var(--ink); font-weight: 500; word-break: break-all; }
+
+/* ---- the optional account ---- */
+/* Signed out this is a quiet line of explanation, not a prompt. Nothing here
+   is required: the signature list above works exactly the same either way. */
+#account-strip {
+  border: 1px solid var(--line); border-radius: 7px; padding: 8px 9px;
+  margin-bottom: 9px; background: #ffffff06; font-size: 11.5px;
+}
+#account-strip .say { color: var(--muted); line-height: 1.45; }
+#account-strip .who { display: flex; align-items: center; gap: 6px; }
+#account-strip .who b { color: var(--ink); font-weight: 600; overflow: hidden;
+                        text-overflow: ellipsis; white-space: nowrap; }
+#account-strip .acts { display: flex; gap: 6px; margin-top: 7px; }
+#account-strip .acts button { padding: 3px 9px; font-size: 11px; }
+#account-strip .state { color: var(--muted); margin-top: 6px; }
+#account-strip .state.bad { color: var(--danger); }
+.codebox { letter-spacing: 5px; font-size: 18px; text-align: center;
+           font-family: var(--mono, "Consolas", monospace); }

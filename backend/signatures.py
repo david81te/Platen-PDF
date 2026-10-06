@@ -61,6 +61,50 @@ def _ensure() -> None:
     os.makedirs(SIG_DIR, exist_ok=True)
 
 
+def _stamp() -> str:
+    """UTC, to the second. Sync compares these across machines, so local time
+    would make the newer copy lose whenever the clocks disagreed."""
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+# Deleting a signature has to be something the other device can learn about.
+# Simply dropping the row would let the next sync see it missing locally,
+# decide it is new over there, and download it straight back.
+TOMBSTONES = os.path.join(APP_DIR, "deleted-signatures.json")
+
+
+def tombstones() -> list[dict]:
+    try:
+        with open(TOMBSTONES, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data if isinstance(data, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def _remember_deletion(entry: dict) -> None:
+    if not entry.get("remote_id"):
+        return          # never synced, so there is nothing out there to remove
+    marks = tombstones()
+    marks.append({"remote_id": entry["remote_id"], "at": _stamp()})
+    try:
+        os.makedirs(APP_DIR, exist_ok=True)
+        with open(TOMBSTONES, "w", encoding="utf-8") as fh:
+            json.dump(marks[-500:], fh, indent=1)
+    except OSError:
+        pass
+
+
+def forget_tombstone(remote_id: str) -> None:
+    """Called once the deletion has reached the server."""
+    marks = [m for m in tombstones() if m.get("remote_id") != remote_id]
+    try:
+        with open(TOMBSTONES, "w", encoding="utf-8") as fh:
+            json.dump(marks, fh, indent=1)
+    except OSError:
+        pass
+
+
 def _load() -> list[dict]:
     _ensure()
     if not os.path.isfile(INDEX):
@@ -162,7 +206,8 @@ def add(source: str, name: str, role: str = "", drop_background: bool = True) ->
         fh.write(data)
     items = _load()
     entry = {"id": identifier, "name": name.strip(), "role": role.strip(),
-             "file": filename, "added": time.strftime("%Y-%m-%d %H:%M")}
+             "file": filename, "added": time.strftime("%Y-%m-%d %H:%M"),
+             "updated": _stamp(), "remote_id": None}
     items.append(entry)
     _store(items)
     return entry
@@ -174,6 +219,7 @@ def rename(identifier: str, name: str, role: str = "") -> dict:
         if item["id"] == identifier:
             item["name"] = name.strip() or item["name"]
             item["role"] = role.strip()
+            item["updated"] = _stamp()
             _store(items)
             return item
     raise PdfError("Signature not found.")
@@ -186,6 +232,7 @@ def remove(identifier: str) -> dict:
         raise PdfError("Signature not found.")
     for item in items:
         if item["id"] == identifier:
+            _remember_deletion(item)
             try:
                 os.remove(os.path.join(SIG_DIR, item["file"]))
             except OSError:

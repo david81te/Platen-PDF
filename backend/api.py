@@ -12,9 +12,10 @@ import traceback
 
 import pymupdf as fitz
 
-from . import (annots, compare as comparison, convert, decorate, forms,
-               pages, prefs as preferences, security, shell_integration,
-               signatures, textedit, version)
+from . import (account, annots, compare as comparison, convert, decorate,
+               forms, pages, prefs as preferences, security,
+               shell_integration, signatures, sync as syncing, textedit,
+               updates, version)
 from .session import NoDocument, PdfError, Session
 
 PDF_TYPES = ("PDF files (*.pdf)",)
@@ -656,6 +657,59 @@ class Api:
     @endpoint
     def link_delete(self, index, link_index):
         return self._mutate(annots.delete_link, int(index), int(link_index))
+
+    # ---- the optional account -------------------------------------------
+    # None of this is required. Everything above works signed out; this exists
+    # so the same signatures appear on the phone.
+
+    @endpoint
+    def account_status(self):
+        return account.status()
+
+    @endpoint
+    def account_request_code(self, email):
+        return account.request_code(email)
+
+    @endpoint
+    def account_verify_code(self, email, code):
+        result = account.verify_code(email, code)
+        # Signing in is only useful if the signatures actually arrive, so do
+        # the first sync here rather than making them find a button.
+        try:
+            result["sync"] = syncing.sync()
+        except Exception as exc:                      # noqa: BLE001
+            result["sync"] = {"problems": [str(exc)]}
+        return result
+
+    @endpoint
+    def account_sign_out(self):
+        return account.sign_out()
+
+    @endpoint
+    def sync_now(self):
+        return syncing.sync()
+
+    @endpoint
+    def sync_status(self):
+        return syncing.status()
+
+    # ---- update notices --------------------------------------------------
+
+    @endpoint
+    def update_check(self, force=False):
+        return updates.check(bool(force))
+
+    @endpoint
+    def update_should_mention(self):
+        return updates.should_mention()
+
+    @endpoint
+    def update_dismiss(self, tag):
+        return updates.dismiss(tag)
+
+    @endpoint
+    def update_set_enabled(self, on):
+        return updates.set_enabled(bool(on))
 
     # ---- signatures -----------------------------------------------------
 
