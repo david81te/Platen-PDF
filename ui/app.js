@@ -2109,23 +2109,19 @@ function setInspector(collapsed, redraw) {
   panel.classList.toggle('collapsed', collapsed);
   button.setAttribute('aria-expanded', String(!collapsed));
   button.title = collapsed ? 'Show panel' : 'Hide panel';
-  try {
-    localStorage.setItem('inspectorCollapsed', collapsed ? '1' : '0');
-  } catch (e) {
-    // Private browsing or blocked storage: the panel still works, it just
-    // forgets. Not worth failing the toggle over.
-  }
+  // Deliberately not localStorage. pywebview picks a fresh loopback port on
+  // every launch, so the page origin changes and anything stored in the
+  // browser is gone by the next start - silently, which is the worst way for
+  // a setting to fail. The backend writes it to the user's settings file.
+  run('set_pref', 'inspectorCollapsed', collapsed);
   // The stage is a different width now. A page drawn to fit has to be redrawn
   // against the new width, and no resize event fires for a layout change.
   if (redraw && S.info && S.zoomMode !== 'fixed') drawPage();
 }
 
-function restoreInspector() {
-  let collapsed = false;
-  try {
-    collapsed = localStorage.getItem('inspectorCollapsed') === '1';
-  } catch (e) { /* see above */ }
-  setInspector(collapsed, false);
+async function restoreInspector() {
+  const saved = await run('prefs');
+  setInspector(!!(saved && saved.inspectorCollapsed), false);
 }
 
 if ($('insp-toggle')) {

@@ -303,11 +303,17 @@ shrunk to an illegible size.
 It never synthesises mouse or keyboard input, so it cannot disturb whatever
 else is open on the desktop — do not replace it with input automation.
 
-The right-hand panel remembers whether it is collapsed, in `localStorage`,
-which survives between runs because the app and the tests share one WebView2
-profile. Any suite that measures widths must clear `inspectorCollapsed` and
-call `restoreInspector()` first, or a previous session silently changes what
-it measures - `test_zoom` failed exactly that way once.
+**Nothing the interface needs to remember may live in `localStorage`.**
+pywebview serves the page from a loopback port chosen fresh on each launch, so
+the origin changes every time and browser storage starts empty - a setting
+written there is forgotten at the next start, silently, with no error to
+notice. Verified: a value written at `127.0.0.1:21774` read back as `None` at
+`127.0.0.1:63552`. Preferences go through `backend/prefs.py`, which writes
+`settings.json` beside the signatures.
+
+That file does persist, so any suite measuring widths resets
+`inspectorCollapsed` through the API before it measures, and `test_sidebar`
+imports `sandbox` so it writes to a temp folder rather than the real one.
 
 `test_account.py` talks to the real Supabase project, because what is worth
 testing is whether our requests are shaped the way the service expects - a

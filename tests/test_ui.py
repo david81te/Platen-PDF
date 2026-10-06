@@ -31,8 +31,8 @@ def drive(window):
             if js("!!(window.pywebview && window.pywebview.api) && typeof S !== 'undefined'"):
                 break
             time.sleep(0.25)
-        # The panel state lives in localStorage and persists between runs, so
-        # a previous session could leave it collapsed and quietly change every
+        # The panel state is stored by the backend and really does persist,
+        # so a previous session could leave it collapsed and quietly change every
         # width measured below. Start from the default.
         js("try { localStorage.removeItem('inspectorCollapsed'); } catch (e) {} "
            "restoreInspector();")

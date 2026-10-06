@@ -13,9 +13,13 @@ import time
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "tests"))
+
+import sandbox  # noqa: F401,E402  - keeps settings.json out of the real folder
 
 import webview  # noqa: E402
 
+from backend import prefs  # noqa: E402
 from backend.api import Api  # noqa: E402
 
 UI = os.path.join(ROOT, "ui", "index.html")
@@ -38,9 +42,10 @@ def drive(window):
         if js("!!(window.pywebview && window.pywebview.api) && typeof S !== 'undefined'"):
             break
         time.sleep(0.25)
-    js("try { localStorage.removeItem('inspectorCollapsed'); } catch (e) {}")
+    js("window.pywebview.api.set_pref('inspectorCollapsed', false)")
+    time.sleep(0.6)
     js("restoreInspector()")
-    time.sleep(0.5)
+    time.sleep(0.8)
 
     print("== the button is there and says what it does ==")
     check("a toggle exists", js("!!document.getElementById('insp-toggle')"), True)
@@ -99,32 +104,30 @@ def drive(window):
           lambda w: abs(w - page_before) < 3)
 
     print("")
-    print("== the choice is remembered ==")
+    print("== the choice is remembered where it survives a restart ==")
     js("document.getElementById('insp-toggle').click()")
-    time.sleep(1.2)
-    check("collapsing was written down",
-          js("localStorage.getItem('inspectorCollapsed')"), "1")
+    time.sleep(1.6)
+    # Read the settings file from disk. That is the only thing that proves it
+    # survives a restart, which is what the browser could not do.
+    check("collapsing was written to the settings file",
+          prefs.get("inspectorCollapsed"), True)
+    check("and the file is where a restart will look", os.path.isfile(prefs.FILE), True)
+    check("localStorage was deliberately not used",
+          js("localStorage.getItem('inspectorCollapsed')"), None)
     # Re-running the restore is what a fresh launch does.
-    js("document.getElementById('inspector').classList.remove('collapsed'); restoreInspector()")
-    time.sleep(0.8)
+    js("document.getElementById('inspector').classList.remove('collapsed')")
+    js("restoreInspector()")
+    time.sleep(1.4)
     check("a fresh start comes back collapsed",
           js("document.getElementById('inspector').classList.contains('collapsed')"), True)
     js("document.getElementById('insp-toggle').click()")
-    time.sleep(1.2)
-    check("and expanding is remembered too",
-          js("localStorage.getItem('inspectorCollapsed')"), "0")
-
-    print("")
-    print("== blocked storage does not break the button ==")
-    js("""window.__realSet = localStorage.setItem;
-          localStorage.setItem = function () { throw new Error('blocked'); };""")
-    errored = js("""(function () {
-        try { setInspector(true, false); return false; } catch (e) { return true; }
-      })()""")
-    check("toggling still works when storage throws", errored, False)
-    check("and it did collapse",
-          js("document.getElementById('inspector').classList.contains('collapsed')"), True)
-    js("localStorage.setItem = window.__realSet; localStorage.removeItem('inspectorCollapsed');")
+    time.sleep(1.6)
+    check("expanding was written down too", prefs.get("inspectorCollapsed"), False)
+    js("document.getElementById('inspector').classList.add('collapsed')")
+    js("restoreInspector()")
+    time.sleep(1.4)
+    check("and a fresh start comes back expanded",
+          js("document.getElementById('inspector').classList.contains('collapsed')"), False)
 
     window.destroy()
 

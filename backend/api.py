@@ -13,8 +13,8 @@ import traceback
 import pymupdf as fitz
 
 from . import (annots, compare as comparison, convert, decorate, forms,
-               pages, security, shell_integration, signatures, textedit,
-               version)
+               pages, prefs as preferences, security, shell_integration,
+               signatures, textedit, version)
 from .session import NoDocument, PdfError, Session
 
 PDF_TYPES = ("PDF files (*.pdf)",)
@@ -145,6 +145,14 @@ class Api:
     @endpoint
     def ping(self):
         return {"ready": True, "ocr": convert.ocr_status()}
+
+    @endpoint
+    def prefs(self):
+        return preferences.all()
+
+    @endpoint
+    def set_pref(self, key, value):
+        return preferences.set(key, value)
 
     @endpoint
     def about(self):
