@@ -183,17 +183,58 @@ check("a fresh machine does not resurrect it", report["downloaded"], 0)
 check("which is the whole point", len(signatures._load()), 0)
 
 print("")
-print("== a deletion on the server removes it here ==")
-fresh = signatures.add("data:image/png;base64," + base64.b64encode(PNG).decode(),
-                       "Temporary", drop_background=False)
+print("== two edits in the same second still resolve ==")
+# This is the case that caught it. Truncating both timestamps to whole
+# seconds made them compare equal, so the later edit was silently dropped and
+# the test only failed once the machine was fast enough to do both inside one
+# second. Everything here happens as quickly as possible on purpose.
+from backend.sync import _moment  # noqa: E402
+
+check("a later fraction beats an earlier one in the same second",
+      _moment("2026-01-01T00:00:00.900000+00:00")
+      > _moment("2026-01-01T00:00:00.100000+00:00"), True)
+check("a bare Z does not win a tie by sorting",
+      _moment("2026-01-01T00:00:00.500000+00:00")
+      > _moment("2026-01-01T00:00:00Z"), True)
+check("an unreadable stamp loses rather than throws",
+      _moment("nonsense") < _moment("2026-01-01T00:00:00Z"), True)
+
+wipe_local()
+quick = signatures.add("data:image/png;base64," + base64.b64encode(PNG).decode(),
+                       "Same Second", drop_background=False)
 sync.sync()
-rid = signatures._load()[0]["remote_id"]
+rid_fast = signatures._load()[0]["remote_id"]
+token = account.access_token()
+sync._call("PATCH", cloud.REST + "/signatures?id=eq." + rid_fast, token,
+           body={"name": "Renamed On The Server"})
+report = sync.sync()
+check("a rename moments after the upload is still pulled", report["renamed_here"], 1)
+check("and the name followed", signatures._load()[0]["name"], "Renamed On The Server")
+
+print("")
+print("== a deletion on the server removes it here ==")
+# Start this section from nothing on either side, so it is not counting
+# signatures left behind by the section above.
+for row in remote_rows(include_deleted=False):
+    sync._call("PATCH", cloud.REST + "/signatures?id=eq." + row["id"],
+               account.access_token(), body={"deleted_at": "2030-01-01T00:00:00Z"})
+wipe_local()
+sync.sync()
+check("both sides empty to begin with", len(signatures._load()), 0)
+
+signatures.add("data:image/png;base64," + base64.b64encode(PNG).decode(),
+               "Temporary", drop_background=False)
+sync.sync()
+mine = [i for i in signatures._load() if i["name"] == "Temporary"]
+check("the temporary one is here and linked", len(mine) == 1 and bool(mine[0]["remote_id"]), True)
+rid = mine[0]["remote_id"]
 token = account.access_token()
 sync._call("PATCH", cloud.REST + "/signatures?id=eq." + rid, token,
            body={"deleted_at": "2030-01-01T00:00:00Z"})
 report = sync.sync()
 check("the removal was pulled", report["removed_here"], 1)
-check("gone from this machine", len(signatures._load()), 0)
+check("gone from this machine",
+      [i for i in signatures._load() if i["name"] == "Temporary"], [])
 check("and no tombstone was invented for it", len(signatures.tombstones()), 0)
 
 # tidy up

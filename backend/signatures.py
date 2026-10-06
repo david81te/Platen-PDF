@@ -62,9 +62,17 @@ def _ensure() -> None:
 
 
 def _stamp() -> str:
-    """UTC, to the second. Sync compares these across machines, so local time
-    would make the newer copy lose whenever the clocks disagreed."""
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    """UTC, with microseconds.
+
+    Sync compares these across machines, so local time would make the newer
+    copy lose whenever the clocks disagreed. The fraction matters as much as
+    the zone: truncated to whole seconds, two edits in the same second compare
+    equal and the later one is silently discarded - which is exactly what
+    happened, and only showed up once the tests ran fast enough to do both
+    inside one second.
+    """
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
 
 # Deleting a signature has to be something the other device can learn about.

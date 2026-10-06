@@ -18,11 +18,34 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 import urllib.error
 import urllib.parse
 import urllib.request
 
 from . import account, cloud, signatures
+
+
+def _moment(text: str | None) -> datetime:
+    """Read either side's timestamp into something comparable.
+
+    Postgres hands back 2026-10-06T21:15:27.806895+00:00 and this program
+    writes 2026-10-06T21:15:27.806895+00:00, but older local records end in a
+    plain Z and some have no fraction at all. Comparing the strings was the
+    original mistake: it made two edits in the same second indistinguishable,
+    and a bare Z sorts after a decimal point, so the local copy won every tie
+    regardless of which was actually newer.
+    """
+    if not text:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    cleaned = text.strip()
+    if cleaned.endswith("Z"):
+        cleaned = cleaned[:-1] + "+00:00"
+    try:
+        moment = datetime.fromisoformat(cleaned)
+    except ValueError:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
 
 
 class SyncError(Exception):
@@ -194,10 +217,11 @@ def sync() -> dict:
             continue
 
         # Both sides have it: the later edit decides the name.
-        theirs = (row.get("updated_at") or "")[:19]
-        ours = (here.get("updated") or "")[:19]
-        if theirs > ours and (row.get("name") != here.get("name")
-                              or (row.get("role") or "") != (here.get("role") or "")):
+        theirs = _moment(row.get("updated_at"))
+        ours = _moment(here.get("updated"))
+        differs = (row.get("name") != here.get("name")
+                   or (row.get("role") or "") != (here.get("role") or ""))
+        if theirs > ours and differs:
             items = signatures._load()
             for item in items:
                 if item.get("remote_id") == rid:
@@ -206,11 +230,21 @@ def sync() -> dict:
                     item["updated"] = row.get("updated_at")
             signatures._store(items)
             report["renamed_here"] += 1
-        elif ours > theirs and (row.get("name") != here.get("name")
-                                or (row.get("role") or "") != (here.get("role") or "")):
+        elif ours > theirs and differs:
             try:
-                _call("PATCH", cloud.REST + "/signatures?id=eq." + rid, token,
-                      body={"name": here["name"], "role": here.get("role") or None})
+                sent = _call("PATCH", cloud.REST + "/signatures?id=eq." + rid, token,
+                             body={"name": here["name"],
+                                   "role": here.get("role") or None},
+                             extra={"Prefer": "return=representation"})
+                # Adopt the server's timestamp for the row we just wrote, so
+                # both sides agree on when it last changed. Leaving ours behind
+                # makes every later comparison answer from stale information.
+                if sent:
+                    items = signatures._load()
+                    for item in items:
+                        if item.get("remote_id") == rid:
+                            item["updated"] = sent[0].get("updated_at") or item["updated"]
+                    signatures._store(items)
                 report["renamed_there"] += 1
             except SyncError as exc:
                 report["problems"].append(str(exc))

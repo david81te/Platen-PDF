@@ -201,35 +201,45 @@ class Api:
     # ---- tabs -----------------------------------------------------------
 
     def unsaved(self) -> list[dict]:
-        """Tabs with changes that would be lost. Plain method, not an endpoint."""
-        out = []
-        for index, session in enumerate(self._docs):
-            info = session.info()
-            if info.get("open") and info.get("dirty"):
-                out.append({"index": index, "name": info.get("name"),
-                            "path": info.get("path")})
-        return out
+        """Tabs with changes that would be lost. Plain method, not an endpoint.
+
+        Takes the lock anyway: it reads every open document, and the window's
+        close handler calls it while whatever the user last did may still be
+        running. Reading a document that another thread is in the middle of
+        replacing is the same fault as saving one.
+        """
+        with _LOCK:
+            out = []
+            for index, session in enumerate(self._docs):
+                info = session.info()
+                if info.get("open") and info.get("dirty"):
+                    out.append({"index": index, "name": info.get("name"),
+                                "path": info.get("path")})
+            return out
 
     def save_all(self) -> dict:
         """Save every changed tab, asking for a location where there is none."""
-        saved, skipped = [], []
-        keep = self._active
-        try:
-            for item in self.unsaved():
-                self._active = item["index"]
-                if self._session.path:
-                    self._session.save()
-                    saved.append(item["name"])
-                    continue
-                target = self._ask_save(self._default_name(".pdf"))
-                if not target:
-                    skipped.append(item["name"])
-                    continue
-                self._session.save(target)
-                saved.append(os.path.basename(target))
-        finally:
-            self._active = min(keep, len(self._docs) - 1)
-        return {"saved": saved, "skipped": skipped}
+        # Writes every open document; one lock for the whole run so a
+        # tab cannot be swapped out between the file and the next.
+        with _LOCK:
+            saved, skipped = [], []
+            keep = self._active
+            try:
+                for item in self.unsaved():
+                    self._active = item["index"]
+                    if self._session.path:
+                        self._session.save()
+                        saved.append(item["name"])
+                        continue
+                    target = self._ask_save(self._default_name(".pdf"))
+                    if not target:
+                        skipped.append(item["name"])
+                        continue
+                    self._session.save(target)
+                    saved.append(os.path.basename(target))
+            finally:
+                self._active = min(keep, len(self._docs) - 1)
+            return {"saved": saved, "skipped": skipped}
 
     @endpoint
     def unsaved_list(self):
@@ -391,16 +401,25 @@ class Api:
 
         Not wrapped in @endpoint: it returns whatever save_as already built, so
         a failure there surfaces as its own message rather than a KeyError.
+
+        It still has to take the lock by hand, and for a long time it did not.
+        That made save the only mutating call on the whole surface running
+        unguarded, so a save overlapping a render or a page operation could
+        find the document swapped underneath it and fail with "document
+        closed" - the intermittent test failure that kept being written off as
+        a flake. The lock is re-entrant, so delegating to save_as below simply
+        re-enters it.
         """
-        if not self._session.path:
-            return self.save_as()
-        try:
-            return {"ok": True, "data": self._session.save()}
-        except (PdfError, NoDocument, ValueError) as exc:
-            return {"ok": False, "error": str(exc)}
-        except Exception as exc:
-            traceback.print_exc()
-            return {"ok": False, "error": type(exc).__name__ + ": " + str(exc)}
+        with _LOCK:
+            if not self._session.path:
+                return self.save_as()
+            try:
+                return {"ok": True, "data": self._session.save()}
+            except (PdfError, NoDocument, ValueError) as exc:
+                return {"ok": False, "error": str(exc)}
+            except Exception as exc:
+                traceback.print_exc()
+                return {"ok": False, "error": type(exc).__name__ + ": " + str(exc)}
 
     @endpoint
     def save_as(self):

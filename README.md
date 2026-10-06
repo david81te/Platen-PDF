@@ -296,6 +296,9 @@ shrunk to an illegible size.
 .venv\Scripts\python tests\test_sidebar.py  # the right panel folds away and gives back the width
 .venv\Scripts\python tests\test_updates.py  # update notices, and the version comparison
 .venv\Scripts\python tests\test_account.py  # optional account (needs Supabase keys, see below)
+.venv\Scripts\python tests\test_sync.py     # signatures across two devices (needs keys)
+.venv\Scripts\python tests\test_account_ui.py # the account panel (needs keys)
+.venv\Scripts\python tests\test_concurrency.py # two calls must not share a document
 ```
 
 `make_fixture.py` needs Word; the rest run against the PDF it produces.
@@ -314,6 +317,15 @@ notice. Verified: a value written at `127.0.0.1:21774` read back as `None` at
 That file does persist, so any suite measuring widths resets
 `inspectorCollapsed` through the API before it measures, and `test_sidebar`
 imports `sandbox` so it writes to a temp folder rather than the real one.
+
+`test_concurrency.py` is worth reading before adding an endpoint. pywebview
+runs every call from JavaScript on its own thread, so the whole API surface
+is serialised behind one re-entrant lock; without it a save overlapping a
+render finds the document swapped underneath and PyMuPDF answers "document
+closed". That surfaced for months as an intermittent test_buttons failure
+that was repeatedly written off as a flake. The test audits every public
+method for the lock, so a new endpoint added without it fails at once rather
+than losing a race in front of someone.
 
 `test_account.py` talks to the real Supabase project, because what is worth
 testing is whether our requests are shaped the way the service expects - a
@@ -363,6 +375,8 @@ backend/
   annots.py         markup, shapes, ink, images, links
   titlebar.py       dark window caption, overriding the system theme
   signatures.py     signature library (PLATENPDF_DATA_DIR redirects it)
+  sync.py           signatures between this machine and the phone
+  prefs.py          small settings that must outlive a restart
   cloud.py          Supabase project URL and publishable key
   account.py        optional sign-in; session in Windows Credential Manager
   updates.py        checks for a newer release, once a day, switchable off
