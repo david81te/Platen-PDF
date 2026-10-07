@@ -8,8 +8,8 @@ from __future__ import annotations
 
 APP_NAME = "Platen PDF"
 VERSION = "1.2.0"
-AUTHOR = "David Willmore"
-COPYRIGHT = "Copyright (c) 2026 David Willmore"
+AUTHOR = "Webbr Labs, LLC"
+COPYRIGHT = "Copyright (c) 2026 Webbr Labs, LLC"
 # AGPL section 5 wants an interactive program to say this where a user can
 # see it; Help > About is that place, and it carries the source link too.
 LICENCE = "Free software under the GNU Affero General Public License v3"

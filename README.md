@@ -1,6 +1,6 @@
 # Platen PDF
 
-Copyright (c) 2026 David Willmore. Free software under the
+Copyright (c) 2026 Webbr Labs, LLC. Free software under the
 [GNU AGPL v3](LICENSE) — see [COPYRIGHT](COPYRIGHT) for why, and
 [THIRD-PARTY.md](THIRD-PARTY.md) for what it is built on.
 

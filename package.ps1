@@ -59,7 +59,7 @@ To remove it, open the folder it installed to:
   %LOCALAPPDATA%\Programs\Platen PDF
 and run "Uninstall Platen PDF".
 
-Questions: David Willmore.
+Questions: Webbr Labs, LLC.
 "@ | Set-Content -LiteralPath "$stage\Read me first.txt" -Encoding ASCII
 
 $zip = "dist\PlatenPDF-Setup.zip"

@@ -1,6 +1,6 @@
 # Third-party components
 
-Platen PDF is original work by David Willmore, but it does its job by standing
+Platen PDF is original work by Webbr Labs, LLC, but it does its job by standing
 on open-source libraries. They keep their own copyright and their own licences;
 the notice in [COPYRIGHT](COPYRIGHT) covers only the code in this repository,
 and [LICENSE](LICENSE) is the AGPL text that the whole thing is released under.

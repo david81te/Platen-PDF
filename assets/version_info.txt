@@ -16,12 +16,12 @@ VSVersionInfo(
     StringFileInfo([
       StringTable(
         '040904B0',
-        [StringStruct('CompanyName', 'David Willmore'),
+        [StringStruct('CompanyName', 'Webbr Labs, LLC'),
          StringStruct('FileDescription', 'Platen PDF'),
          StringStruct('FileVersion', '1.2.0.0'),
          StringStruct('InternalName', 'PlatenPDF'),
          StringStruct('LegalCopyright',
-                      'Copyright (c) 2026 David Willmore. '
+                      'Copyright (c) 2026 Webbr Labs, LLC. '
                       'Free software under the GNU AGPL v3.'),
          StringStruct('OriginalFilename', 'PlatenPDF.exe'),
          StringStruct('ProductName', 'Platen PDF'),
