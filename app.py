@@ -8,7 +8,8 @@ import sys
 
 import webview
 
-from backend import shell_integration, single_instance, titlebar, version
+from backend import (foreground, shell_integration, single_instance, titlebar,
+                     version)
 from backend.api import Api
 
 APP_NAME = version.APP_NAME
@@ -151,7 +152,16 @@ def main() -> None:
     window.events.closing += confirm_close
 
     def handle_incoming(path: str) -> None:
-        """A later launch asked us to open a file: show it in a new tab."""
+        """A later launch asked us to open a file: show it, and come forward.
+
+        Raised before the document loads, so the window is already in front
+        while it opens rather than appearing after a pause by which time the
+        person has looked somewhere else.
+        """
+        try:
+            foreground.bring_to_front()
+        except Exception:
+            pass
         try:
             window.evaluate_js("window.openOnStart(%s)" % json.dumps(path))
         except Exception:

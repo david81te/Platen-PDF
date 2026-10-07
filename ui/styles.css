@@ -473,3 +473,14 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
 #account-strip .state.bad { color: var(--danger); }
 .codebox { letter-spacing: 5px; font-size: 18px; text-align: center;
            font-family: var(--mono, "Consolas", monospace); }
+
+/* ---- typed signatures ---- */
+.sig-actions { display: flex; gap: 6px; }
+.sig-actions button { flex: 1; }
+#typed-preview {
+  background: #fff; border: 1px solid var(--line); border-radius: 7px;
+  min-height: 96px; display: grid; place-items: center; padding: 8px;
+  margin-bottom: 9px; overflow: hidden;
+}
+#typed-preview img { max-width: 100%; max-height: 86px; }
+#typed-preview .waiting { color: #9aa0ad; font-size: 12px; }

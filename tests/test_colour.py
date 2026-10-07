@@ -50,6 +50,18 @@ def rect(h):
     return box.left, box.top, box.right, box.bottom
 
 
+def client_origin(h):
+    """Where the web content starts, in screen coordinates.
+
+    The window rect includes the caption bar, the page does not, so probing by
+    a fraction of the window is a guess. This turns a position inside the page
+    element into the exact pixel to look at.
+    """
+    point = wintypes.POINT(0, 0)
+    u.ClientToScreen(wintypes.HWND(h), ctypes.byref(point))
+    return point.x, point.y
+
+
 def drive(window):
     threading.Thread(target=lambda: (time.sleep(180), print("WATCHDOG", flush=True),
                                      os._exit(2)), daemon=True).start()
@@ -107,10 +119,37 @@ def drive(window):
         shot = ImageGrab.grab((left, top, right, bottom))
         shot.save(OUT)
         w, h = shot.size
-        page = [shot.getpixel((int(w * fx), int(h * fy)))[:3]
-                for fx, fy in ((0.45, 0.30), (0.50, 0.45), (0.55, 0.60))]
+
+        # Look at the page itself rather than at a fraction of the window.
+        # Fractions were a guess, and a short page or a scrolled view put one
+        # of them on the grey behind the page - which reads as "not white"
+        # while telling us nothing about the colour of the page.
+        # The part of the page actually on screen. A page is routinely taller
+        # than the window, so a fraction of the whole page element can sit far
+        # below the bottom edge; only the visible overlap can be photographed.
+        box = js("""(function () {
+            var r = document.getElementById('pageimg').getBoundingClientRect();
+            var l = Math.max(r.left, 0), t = Math.max(r.top, 0);
+            var rt = Math.min(r.right, window.innerWidth);
+            var bt = Math.min(r.bottom, window.innerHeight);
+            return [l, t, rt - l, bt - t, window.devicePixelRatio || 1];
+          })()""")
+        check("a usable amount of the page is on screen",
+              [round(box[2]), round(box[3])],
+              lambda d: d[0] >= 80 and d[1] >= 80)
+        cx, cy = client_origin(hwnd)
+        scale = box[4]
+        spots_on_page = [
+            (cx + (box[0] + box[2] * fx) * scale - left,
+             cy + (box[1] + box[3] * fy) * scale - top)
+            for fx, fy in ((0.3, 0.25), (0.5, 0.5), (0.7, 0.75))]
+        inside = all(0 <= x < w and 0 <= y < h for x, y in spots_on_page)
+        check("the probe points land inside the captured window", inside, True)
+        page = [shot.getpixel((int(x), int(y)))[:3] for x, y in spots_on_page
+                if 0 <= x < w and 0 <= y < h]
         print("  page pixels:", ["#%02x%02x%02x" % p for p in page])
-        check("the page is white, not cream", page, lambda ps: all(p == (255, 255, 255) for p in ps))
+        check("the page is white, not cream", page,
+              lambda ps: bool(ps) and all(p == (255, 255, 255) for p in ps))
         menu = shot.getpixel((w // 2, 46))[:3]
         print("  menu bar   : #%02x%02x%02x  (styles.css says #242a35)" % menu)
         check("the app's own grey matches the stylesheet", menu,

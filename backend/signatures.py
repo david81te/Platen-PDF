@@ -221,6 +221,89 @@ def add(source: str, name: str, role: str = "", drop_background: bool = True) ->
     return entry
 
 
+# Handwriting faces that ship with Windows. Each is checked for before it is
+# offered, because a missing font would otherwise render as a default sans and
+# produce a "signature" that looks like a label.
+SIGNATURE_FONTS = [
+    ("Segoe Script", "segoesc.ttf"),
+    ("Brush Script", "BRUSHSCI.TTF"),
+    ("Lucida Handwriting", "LHANDW.TTF"),
+    ("Edwardian Script", "ITCEDSCR.TTF"),
+    ("Freestyle Script", "FREESCPT.TTF"),
+    ("Kunstler Script", "KUNSTLER.TTF"),
+    ("Mistral", "MISTRAL.TTF"),
+    ("Vladimir Script", "VLADIMIR.TTF"),
+    ("Rage Italic", "RAGE.TTF"),
+    ("Ink Free", "Inkfree.ttf"),
+    ("Segoe Print", "segoepr.ttf"),
+    ("Palace Script", "PALSCRI.TTF"),
+]
+FONT_DIR = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
+INK = (16, 24, 92)          # a dark blue-black, the way a pen looks on paper
+
+
+def fonts() -> list[dict]:
+    """The handwriting faces actually present on this machine."""
+    out = []
+    for label, filename in SIGNATURE_FONTS:
+        if os.path.isfile(os.path.join(FONT_DIR, filename)):
+            out.append({"id": filename, "label": label})
+    return out
+
+
+def render_typed(text: str, font_id: str, height: int = 180) -> bytes:
+    """Draw typed text as a signature image, cropped to the ink.
+
+    Returns a transparent PNG. Nothing is stored; this is what the dialog
+    shows while someone is still choosing a face.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    text = (text or "").strip()
+    if not text:
+        raise PdfError("Type a name first.")
+
+    available = {f["id"] for f in fonts()}
+    if font_id not in available:
+        chosen = next(iter(available), None)
+        if not chosen:
+            raise PdfError("No handwriting fonts are installed on this PC.")
+        font_id = chosen
+
+    try:
+        face = ImageFont.truetype(os.path.join(FONT_DIR, font_id), height)
+    except OSError as exc:
+        raise PdfError("Could not load that handwriting style.") from exc
+
+    # Draw oversized on a transparent canvas, then crop to what was actually
+    # drawn. Script faces have wildly different metrics, so trusting the
+    # reported size leaves some signatures swimming in space and others cut.
+    pad = height
+    canvas = Image.new("RGBA", (pad * 2 + height * len(text), height * 3), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(canvas)
+    draw.text((pad, pad // 2), text, font=face, fill=INK + (255,))
+    box = canvas.getbbox()
+    if not box:
+        raise PdfError("That came out blank. Try another handwriting style.")
+    margin = max(4, height // 14)
+    box = (max(0, box[0] - margin), max(0, box[1] - margin),
+           min(canvas.width, box[2] + margin), min(canvas.height, box[3] + margin))
+    trimmed = canvas.crop(box)
+
+    buffer = io.BytesIO()
+    trimmed.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def add_typed(text: str, font_id: str, name: str = "", role: str = "") -> dict:
+    """Save a typed signature into the library."""
+    data = render_typed(text, font_id)
+    # drop_background is off: the image is already transparent, and the
+    # whitening pass would eat the anti-aliased edges of the strokes.
+    return add("data:image/png;base64," + base64.b64encode(data).decode(),
+               (name or text).strip(), role, drop_background=False)
+
+
 def rename(identifier: str, name: str, role: str = "") -> dict:
     items = _load()
     for item in items:

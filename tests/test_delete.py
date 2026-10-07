@@ -67,6 +67,11 @@ def drive(window):
     js("window.confirm = () => true;")
 
     def fresh():
+        # Close first. Opening a file that is already open now switches to its
+        # tab and keeps the annotations already on it, so without this each
+        # section would start with whatever the previous one left behind.
+        js("window.pywebview.api.close_doc()")
+        time.sleep(0.35)
         js("window.openOnStart(%s)" % repr(SRC.replace("\\", "/")))
         for _ in range(60):
             if js("S.info && S.info.page_count"):

@@ -112,8 +112,22 @@ def drive(window):
             time.sleep(0.25)
         return False
 
+    def reset_tabs():
+        """Back to a single empty tab, driven from the Python side.
+
+        Opening a file that is already open now switches to its tab and keeps
+        whatever has been done to it - right for someone double-clicking in
+        Explorer, wrong for a test that wants the document back the way it is
+        on disk. Tabs other actions opened are dropped here too, so one action
+        cannot leave a stray document lying around for the next.
+        """
+        while len(api._docs) > 1:
+            api.tab_close(len(api._docs) - 1)
+        api.close_doc()
+
     def fresh(path=SOURCE):
         js("S.compare=null; S.hits=[]; S.selectedAnnot=null;")
+        reset_tabs()
         js("window.openOnStart(%r)" % path.replace("\\", "/"))
         for _ in range(60):
             if js("S.info && S.info.page_count"):
@@ -214,6 +228,13 @@ def drive(window):
         if not fresh():
             note(False, "menu: " + act, "could not reopen the document")
             continue
+        if act == "mergetab":
+            # Merging needs a second document to merge from, and reopening the
+            # fixture no longer stacks tabs up the way it used to.
+            api.open_path(os.path.join(OUT, "hard.pdf"))
+            api.tab_switch(0)
+            js("refreshTabs()")
+            time.sleep(0.4)
         before = js("(function(){return S.info ? S.info.page_count : -1})()")
         before_dirty = js("!!(S.info && S.info.dirty)")
         clear_toasts()

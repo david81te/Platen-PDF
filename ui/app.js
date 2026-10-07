@@ -2171,6 +2171,62 @@ document.querySelectorAll('.tab').forEach((b) => {
 
 $('empty-open').onclick = ACTIONS.open;
 $('tabadd').onclick = ACTIONS.open;
+// Typing a signature beats scanning one for most people: no printer, no
+// camera, no cropping. The preview updates as you type and as you change the
+// hand, because nobody can judge a script face from its name.
+$('sig-type').onclick = async () => {
+  const faces = await run('sig_fonts');
+  if (!faces || !faces.length) {
+    modal('No handwriting fonts',
+      '<p class="hint">Windows does not have any handwriting fonts installed ' +
+      'on this PC, so a typed signature would come out looking like a label. ' +
+      'Add an image of a signature instead.</p>', null);
+    return;
+  }
+  const options = faces.map((f, i) =>
+    '<option value="' + escapeHtml(f.id) + '"' + (i === 0 ? ' selected' : '') +
+    '>' + escapeHtml(f.label) + '</option>').join('');
+
+  modal('Type a signature',
+    '<div class="field"><label>Signature</label>' +
+    '<input name="text" placeholder="Your name" autocomplete="off"></div>' +
+    '<div class="field"><label>Handwriting</label>' +
+    '<select name="font">' + options + '</select></div>' +
+    '<div id="typed-preview"><span class="waiting">Type a name to see it.</span></div>' +
+    '<div class="field"><label>Role (optional)</label>' +
+    '<input name="role" placeholder="Managing Partner"></div>' +
+    '<p class="hint">This makes a picture of your name in a handwriting style. ' +
+    'It is not a certificate-based digital signature.</p>',
+    async (v) => {
+      if (!(v.text || '').trim()) { toast('Type a name first.', 'err'); return; }
+      const r = await run('sig_add_typed', v.text, v.font, v.text, v.role);
+      if (r) { toast('Signature saved.', 'ok'); loadSigs(); }
+    }, 'Save signature');
+
+  const box = $('typed-preview');
+  const textField = document.querySelector('#modal input[name="text"]');
+  const fontField = document.querySelector('#modal select[name="font"]');
+  let pending = null;
+  const draw = async () => {
+    const text = (textField.value || '').trim();
+    if (!text) {
+      box.innerHTML = '<span class="waiting">Type a name to see it.</span>';
+      return;
+    }
+    const made = await run('sig_typed_preview', text, fontField.value);
+    // Another keystroke may have landed while that was in flight; only the
+    // newest answer should win, or the preview flickers backwards.
+    if (made && textField.value.trim() === text) {
+      box.innerHTML = '<img alt="Preview of the typed signature">';
+      box.querySelector('img').src = made.image;
+    }
+  };
+  const schedule = () => { clearTimeout(pending); pending = setTimeout(draw, 180); };
+  textField.oninput = schedule;
+  fontField.onchange = draw;
+  setTimeout(() => textField.focus(), 40);
+};
+
 $('sig-add').onclick = () => modal('Add a signature',
   '<div class="field"><label>Name</label><input name="name" placeholder="Ernie Willmore"></div>' +
   '<div class="field"><label>Role (optional)</label><input name="role" placeholder="Managing Partner"></div>' +
@@ -2349,8 +2405,14 @@ document.addEventListener('keydown', (e) => {
 });
 
 window.openOnStart = async (path) => {
-  setInfo(await busyRun('Opening…', 'open_path', path));
+  const info = await busyRun('Opening…', 'open_path', path);
+  setInfo(info);
   await refresh();
+  // Switching to a tab that was already there looks like nothing happened,
+  // so say what happened instead of leaving someone wondering.
+  if (info && info.already_open) {
+    toast('That document is already open.');
+  }
 };
 
 ready().then(async () => {

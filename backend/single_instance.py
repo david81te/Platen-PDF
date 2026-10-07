@@ -45,6 +45,12 @@ def deliver(path: str, timeout_ms: int = 700) -> bool:
             return False
         return False
     try:
+        # We own the foreground right now - Explorer just started us - so this
+        # is the moment we are allowed to hand that right to the copy already
+        # running. Without it the window it opens stays behind whatever the
+        # person was looking at.
+        from . import foreground
+        foreground.allow_any_process()
         win32file.WriteFile(handle, os.path.abspath(path).encode("utf-8"))
         return True
     except Exception:

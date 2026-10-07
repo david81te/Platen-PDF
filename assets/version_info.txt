@@ -3,8 +3,8 @@
 # recipient can check who wrote the program before running it.
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 0, 0, 0),
-    prodvers=(1, 0, 0, 0),
+    filevers=(1, 2, 0, 0),
+    prodvers=(1, 2, 0, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -18,14 +18,14 @@ VSVersionInfo(
         '040904B0',
         [StringStruct('CompanyName', 'David Willmore'),
          StringStruct('FileDescription', 'Platen PDF'),
-         StringStruct('FileVersion', '1.0.0.0'),
+         StringStruct('FileVersion', '1.2.0.0'),
          StringStruct('InternalName', 'PlatenPDF'),
          StringStruct('LegalCopyright',
                       'Copyright (c) 2026 David Willmore. '
                       'Free software under the GNU AGPL v3.'),
          StringStruct('OriginalFilename', 'PlatenPDF.exe'),
          StringStruct('ProductName', 'Platen PDF'),
-         StringStruct('ProductVersion', '1.0.0')])
+         StringStruct('ProductVersion', '1.2.0')])
     ]),
     VarFileInfo([VarStruct('Translation', [0x0409, 1200])])
   ]

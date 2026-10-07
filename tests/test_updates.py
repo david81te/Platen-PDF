@@ -65,7 +65,11 @@ print("== a real look at the releases page ==")
 found = updates.check(force=True)
 check("it reached GitHub and read a tag", bool(found["latest"]), lambda v: bool(v))
 check("the current version is ours", found["current"], version.VERSION)
-check("1.0.0 is published, so there is nothing newer yet",
+# Deliberately not a hardcoded version number. The point is that a copy built
+# from this tree never tells its own users to go and fetch a release they are
+# already running. When this fails, version.py is behind the newest published
+# release and wants bumping before the next build.
+check("this tree is not behind the published release (%s)" % found["latest"],
       found["update_available"], False)
 check("a download page is offered", "github.com" in found["url"], True)
 

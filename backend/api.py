@@ -194,9 +194,30 @@ class Api:
 
     @endpoint
     def open_path(self, path, password=None):
+        # Opening the same file twice gives two tabs of one document, each
+        # with its own undo history, and whichever is saved last quietly wins.
+        # Switching to the one already open is what people mean.
         if password is None:
+            existing = self._tab_showing(path)
+            if existing is not None:
+                self._active = existing
+                return {**self._session.info(), "already_open": True,
+                        "tabs": self._tab_state()}
             self._slot_for_new_document()
         return self._open_any(path, password)
+
+    def _tab_showing(self, path) -> int | None:
+        """The tab already showing this file, if any."""
+        try:
+            wanted = os.path.normcase(os.path.abspath(path))
+        except (TypeError, ValueError):
+            return None
+        for index, session in enumerate(self._docs):
+            if not session.path:
+                continue
+            if os.path.normcase(os.path.abspath(session.path)) == wanted:
+                return index
+        return None
 
     # ---- tabs -----------------------------------------------------------
 
@@ -766,6 +787,20 @@ class Api:
     @endpoint
     def sig_list(self):
         return signatures.listing()
+
+    @endpoint
+    def sig_fonts(self):
+        return signatures.fonts()
+
+    @endpoint
+    def sig_typed_preview(self, text, font_id):
+        import base64 as _b64
+        data = signatures.render_typed(text, font_id)
+        return {"image": "data:image/png;base64," + _b64.b64encode(data).decode()}
+
+    @endpoint
+    def sig_add_typed(self, text, font_id, name="", role=""):
+        return signatures.add_typed(text, font_id, name, role)
 
     @endpoint
     def sig_add_dialog(self, name, role="", drop_background=True):
