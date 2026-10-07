@@ -299,6 +299,8 @@ shrunk to an illegible size.
 .venv\Scripts\python tests\test_sync.py     # signatures across two devices (needs keys)
 .venv\Scripts\python tests\test_account_ui.py # the account panel (needs keys)
 .venv\Scripts\python tests\test_concurrency.py # two calls must not share a document
+.venv\Scripts\python tests\test_printing.py # pages, scaling, and a real job to a file
+.venv\Scripts\python tests\test_print_ui.py # the Print dialog and Ctrl+P
 ```
 
 `make_fixture.py` needs Word; the rest run against the PDF it produces.
@@ -375,6 +377,7 @@ backend/
   annots.py         markup, shapes, ink, images, links
   titlebar.py       dark window caption, overriding the system theme
   signatures.py     signature library (PLATENPDF_DATA_DIR redirects it)
+  printing.py       renders pages straight to the printer
   sync.py           signatures between this machine and the phone
   prefs.py          small settings that must outlive a restart
   cloud.py          Supabase project URL and publishable key

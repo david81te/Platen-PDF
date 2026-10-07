@@ -1665,6 +1665,7 @@ const ACTIONS = {
       }, 'Compare');
   },
   props: () => promptProps(),
+  print: () => promptPrint(),
   about: () => showAbout(),
   defaultapp: async () => {
     const st = await run('default_app_status');
@@ -2046,6 +2047,45 @@ function promptReplace() {
     }, 'Replace all');
 }
 
+async function promptPrint() {
+  const found = await run('printers');
+  if (!found) return;
+  const list = found.printers || [];
+  if (!list.length) {
+    modal('No printer found',
+      '<p class="hint">Windows does not have a printer set up on this account. ' +
+      'Add one in Settings, then try again.</p>', null);
+    return;
+  }
+  const options = list.map((name) =>
+    '<option value="' + escapeHtml(name) + '"' +
+    (name === found.default ? ' selected' : '') + '>' +
+    escapeHtml(name) + '</option>').join('');
+  const pages = (S.info && S.info.page_count) || 1;
+
+  modal('Print',
+    '<div class="field"><label>Printer</label>' +
+    '<select name="printer">' + options + '</select></div>' +
+    '<div class="row">' +
+    '<div class="field" style="flex:2"><label>Pages</label>' +
+    '<input name="pages" placeholder="' +
+    (pages === 1 ? 'The only page' : 'All ' + pages + ' pages') + '"></div>' +
+    '<div class="field" style="flex:1"><label>Copies</label>' +
+    '<input name="copies" type="number" min="1" max="99" value="1"></div>' +
+    '</div>' +
+    '<p class="hint">Leave pages empty for the whole document, or type ' +
+    'something like <b>1-3, 7</b>. This prints what is on screen, including ' +
+    'changes you have not saved.</p>',
+    async (v) => {
+      toast('Sending to the printer…');
+      const done = await run('print_document', v.printer, v.pages || '',
+                             parseInt(v.copies, 10) || 1);
+      if (!done) return;              // run() has already shown the reason
+      const sheets = done.sheets === 1 ? '1 page' : done.sheets + ' pages';
+      toast(sheets + ' sent to ' + done.printer);
+    }, 'Print');
+}
+
 async function showAbout() {
   const a = await run('about');
   if (!a) return;
@@ -2282,6 +2322,12 @@ document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
   const ctrl = e.ctrlKey || e.metaKey;
   if (ctrl && e.key.toLowerCase() === 'o') { e.preventDefault(); ACTIONS.open(); }
+  else if (ctrl && e.key.toLowerCase() === 'p') {
+    // Taken before the browser's own print, which would print the interface
+    // rather than the document.
+    e.preventDefault();
+    if (S.info) ACTIONS.print();
+  }
   else if (ctrl && e.key.toLowerCase() === 's') { e.preventDefault(); ACTIONS.save(); }
   else if (ctrl && e.key.toLowerCase() === 'z') { e.preventDefault(); ACTIONS.undo(); }
   else if (ctrl && e.key.toLowerCase() === 'y') { e.preventDefault(); ACTIONS.redo(); }

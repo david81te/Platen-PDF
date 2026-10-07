@@ -224,7 +224,11 @@ def drive(window):
             note(False, "menu: " + act, "threw on click: %r" % (exc,))
             continue
         try:
-            settle()
+            # Print is the one action that reaches outside the program. Letting
+            # the suite confirm it would queue a real job on whatever printer
+            # the machine happens to have, so this dismisses the dialog instead.
+            # That it opens, and what it contains, is checked by test_print_ui.
+            settle(modal_choice="x" if act == "print" else "ok")
         except Exception as exc:
             note(False, "menu: " + act, "threw while running: %r" % (exc,))
             continue
