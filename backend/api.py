@@ -705,16 +705,23 @@ class Api:
         return printing.printers()
 
     @endpoint
-    def print_document(self, printer=None, pages="", copies=1, destination=None):
+    def print_document(self, printer=None, pages="", copies=1, destination=None,
+                       subset="all", reverse=False, collate=True,
+                       orientation="auto", per_sheet=1, duplex="none",
+                       colour=True, scale="fit"):
         # require() raises the same "no document" that every other endpoint
         # gives, rather than a confusing one from inside the printer code.
         doc = self._session.require()
         # Check the page range before anything else. Asking someone to pick a
         # file name and only then telling them their range was wrong wastes
         # the one step that needed their attention.
-        if not printing.parse_range(pages, doc.page_count):
+        chosen_pages = printing.parse_range(pages, doc.page_count)
+        if not chosen_pages:
             raise PdfError("That page range does not include any pages of "
                            "this document.")
+        if not printing.apply_subset(chosen_pages, subset):
+            raise PdfError("That selection has no %s-numbered pages in it."
+                           % ("odd" if subset == "odd" else "even"))
         chosen = printer or printing.printers().get("default")
         if chosen and not destination and printing.needs_destination(chosen):
             # Microsoft Print to PDF and friends write a file rather than
@@ -727,7 +734,10 @@ class Api:
         return printing.print_document(
             doc, chosen, pages, copies,
             title=self._default_name(".pdf") or "Platen PDF",
-            destination=destination)
+            destination=destination, subset=subset, reverse=bool(reverse),
+            collate=bool(collate), orientation=orientation,
+            per_sheet=int(per_sheet or 1), duplex=duplex,
+            colour=bool(colour), scale=scale)
 
     # ---- the optional account -------------------------------------------
     # None of this is required. Everything above works signed out; this exists

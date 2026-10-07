@@ -7,7 +7,7 @@ from here. Change the two together - tests/test_about.py fails if they drift.
 from __future__ import annotations
 
 APP_NAME = "Platen PDF"
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 AUTHOR = "Webbr Labs, LLC"
 COPYRIGHT = "Copyright (c) 2026 Webbr Labs, LLC"
 # AGPL section 5 wants an interactive program to say this where a user can

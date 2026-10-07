@@ -2062,28 +2062,110 @@ async function promptPrint() {
     (name === found.default ? ' selected' : '') + '>' +
     escapeHtml(name) + '</option>').join('');
   const pages = (S.info && S.info.page_count) || 1;
+  const perSheet = (found.per_sheet || [1, 2, 4, 6, 9, 16]).map((n) =>
+    '<option value="' + n + '">' + (n === 1 ? '1 (normal)' : n) + '</option>').join('');
 
   modal('Print',
     '<div class="field"><label>Printer</label>' +
     '<select name="printer">' + options + '</select></div>' +
+
     '<div class="row">' +
     '<div class="field" style="flex:2"><label>Pages</label>' +
     '<input name="pages" placeholder="' +
     (pages === 1 ? 'The only page' : 'All ' + pages + ' pages') + '"></div>' +
+    '<div class="field" style="flex:1"><label>Print</label>' +
+    '<select name="subset"><option value="all">All pages</option>' +
+    '<option value="odd">Odd pages only</option>' +
+    '<option value="even">Even pages only</option></select></div>' +
+    '</div>' +
+
+    '<div class="row">' +
     '<div class="field" style="flex:1"><label>Copies</label>' +
     '<input name="copies" type="number" min="1" max="99" value="1"></div>' +
+    '<div class="field" style="flex:2"><label>Orientation</label>' +
+    '<select name="orientation"><option value="auto">Match the document</option>' +
+    '<option value="portrait">Portrait</option>' +
+    '<option value="landscape">Landscape</option></select></div>' +
     '</div>' +
+
+    '<div class="row">' +
+    '<div class="field" style="flex:1"><label>Pages per sheet</label>' +
+    '<select name="per_sheet">' + perSheet + '</select></div>' +
+    '<div class="field" style="flex:2"><label>Two-sided</label>' +
+    '<select name="duplex"><option value="none">One-sided</option>' +
+    '<option value="long">Both sides, flip on long edge</option>' +
+    '<option value="short">Both sides, flip on short edge</option></select></div>' +
+    '</div>' +
+
+    '<div class="row">' +
+    '<div class="field" style="flex:1"><label>Size</label>' +
+    '<select name="scale"><option value="fit">Fit to page</option>' +
+    '<option value="actual">Actual size</option></select></div>' +
+    '<div class="field" style="flex:2"><label>Colour</label>' +
+    '<select name="colour"><option value="1">Colour</option>' +
+    '<option value="0">Black and white</option></select></div>' +
+    '</div>' +
+
+    '<div class="field"><label><input type="checkbox" name="collate" ' +
+    'style="width:auto" checked> Collate</label></div>' +
+    '<div class="field"><label><input type="checkbox" name="reverse" ' +
+    'style="width:auto"> Reverse order (last page first)</label></div>' +
+
+    '<p class="hint" id="print-can"></p>' +
     '<p class="hint">Leave pages empty for the whole document, or type ' +
     'something like <b>1-3, 7</b>. This prints what is on screen, including ' +
     'changes you have not saved.</p>',
     async (v) => {
       toast('Sending to the printer…');
       const done = await run('print_document', v.printer, v.pages || '',
-                             parseInt(v.copies, 10) || 1);
+                             parseInt(v.copies, 10) || 1, null,
+                             v.subset, v.reverse, v.collate,
+                             v.orientation, parseInt(v.per_sheet, 10) || 1,
+                             v.duplex, v.colour === '1', v.scale);
       if (!done) return;              // run() has already shown the reason
-      const sheets = done.sheets === 1 ? '1 page' : done.sheets + ' pages';
+      const sheets = done.sheets === 1 ? '1 sheet' : done.sheets + ' sheets';
       toast(sheets + ' sent to ' + done.printer);
     }, 'Print');
+
+  // Only offer what the chosen printer can actually do. A tick box that the
+  // driver ignores is worse than no tick box: the job comes out wrong and
+  // nothing explains why.
+  const caps = found.can || {};
+  const sel = document.querySelector('#modal select[name="printer"]');
+  const duplex = document.querySelector('#modal select[name="duplex"]');
+  const collate = document.querySelector('#modal input[name="collate"]');
+  const colour = document.querySelector('#modal select[name="colour"]');
+  const copies = document.querySelector('#modal input[name="copies"]');
+  const note = document.getElementById('print-can');
+
+  const describe = () => {
+    const can = caps[sel.value] || {};
+    const missing = [];
+    const set = (field, ok, label) => {
+      if (!field) return;
+      field.disabled = !ok;
+      if (!ok) {
+        missing.push(label);
+        // Leave it saying what will actually happen, not what was asked for.
+        if (field.name === 'duplex') field.value = 'none';
+        if (field.name === 'colour') field.value = '0';
+      }
+    };
+    set(duplex, can.duplex !== false, 'print both sides');
+    set(colour, can.colour !== false, 'print in colour');
+    if (collate) {
+      collate.disabled = can.collate === false;
+      if (can.collate === false) missing.push('collate');
+    }
+    if (copies && can.max_copies) {
+      copies.max = Math.min(99, can.max_copies);
+      if (parseInt(copies.value, 10) > copies.max) copies.value = copies.max;
+    }
+    note.textContent = missing.length
+      ? 'This printer cannot ' + missing.join(', ') + ', so those are turned off.'
+      : '';
+  };
+  if (sel) { sel.onchange = describe; describe(); }
 }
 
 async function showAbout() {

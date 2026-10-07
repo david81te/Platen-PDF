@@ -13,6 +13,7 @@ import os
 import sys
 import threading
 import time
+from collections import Counter
 from ctypes import wintypes
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
@@ -139,17 +140,31 @@ def drive(window):
               lambda d: d[0] >= 80 and d[1] >= 80)
         cx, cy = client_origin(hwnd)
         scale = box[4]
-        spots_on_page = [
-            (cx + (box[0] + box[2] * fx) * scale - left,
-             cy + (box[1] + box[3] * fy) * scale - top)
-            for fx, fy in ((0.3, 0.25), (0.5, 0.5), (0.7, 0.75))]
+        # Sample a grid over the page rather than a few chosen spots. Any
+        # single point can land on a letter - the fixture has text on it - and
+        # an antialiased glyph edge is grey, which says nothing about the
+        # colour of the paper. What does say it is the commonest colour on the
+        # page: on a white page that is pure white, and on the cream page this
+        # test exists to catch, every one of those samples shifts together.
+        spots_on_page = []
+        for row in range(11):
+            for column in range(11):
+                fx = 0.04 + 0.92 * column / 10.0
+                fy = 0.04 + 0.92 * row / 10.0
+                spots_on_page.append(
+                    (cx + (box[0] + box[2] * fx) * scale - left,
+                     cy + (box[1] + box[3] * fy) * scale - top))
         inside = all(0 <= x < w and 0 <= y < h for x, y in spots_on_page)
         check("the probe points land inside the captured window", inside, True)
         page = [shot.getpixel((int(x), int(y)))[:3] for x, y in spots_on_page
                 if 0 <= x < w and 0 <= y < h]
-        print("  page pixels:", ["#%02x%02x%02x" % p for p in page])
-        check("the page is white, not cream", page,
-              lambda ps: bool(ps) and all(p == (255, 255, 255) for p in ps))
+        tally = Counter(page)
+        common, seen = tally.most_common(1)[0]
+        print("  sampled %d points on the page; commonest #%02x%02x%02x x%d"
+              % (len(page), common[0], common[1], common[2], seen))
+        check("the paper itself is white, not cream", common, (255, 255, 255))
+        check("and most of the page is that colour, so it is the paper "
+              "and not a mark on it", seen, lambda n: n > len(page) * 0.5)
         menu = shot.getpixel((w // 2, 46))[:3]
         print("  menu bar   : #%02x%02x%02x  (styles.css says #242a35)" % menu)
         check("the app's own grey matches the stylesheet", menu,

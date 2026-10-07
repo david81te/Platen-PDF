@@ -68,9 +68,17 @@ def drive(window):
     time.sleep(2.0)
 
     js("document.querySelector('li[data-act=\"print\"]').click()")
-    time.sleep(2.5)
-    check("the dialog opens",
-          js("document.getElementById('modal-back').classList.contains('on')"), True)
+    # Waited for rather than slept through. Windows takes a couple of seconds
+    # to enumerate network printers the first time, so a fixed sleep sits on
+    # the boundary and fails only when the machine is busy - which is exactly
+    # when a suite is running.
+    opened = False
+    for _ in range(60):
+        if js("document.getElementById('modal-back').classList.contains('on')"):
+            opened = True
+            break
+        time.sleep(0.25)
+    check("the dialog opens", opened, True)
     body = js("document.getElementById('modal').innerText") or ""
     check("it offers a printer",
           js("!!document.querySelector('#modal select[name=\"printer\"]')"), True)
@@ -96,6 +104,63 @@ def drive(window):
     check("a one-page document does not say 'All 1 pages'",
           js("""(document.querySelector('#modal input[name="pages"]') || {}).placeholder"""),
           lambda t: t == "The only page")
+
+    print("")
+    print("== the rest of the options are there ==")
+    for name, label in [("subset", "odd or even"), ("orientation", "orientation"),
+                        ("per_sheet", "pages per sheet"), ("duplex", "two-sided"),
+                        ("scale", "fit or actual size"), ("colour", "colour")]:
+        check("a %s choice" % label,
+              js("!!document.querySelector('#modal select[name=\"%s\"]')" % name), True)
+    for name, label in [("collate", "collate"), ("reverse", "reverse order")]:
+        check("a %s tick box" % label,
+              js("!!document.querySelector('#modal input[name=\"%s\"]')" % name), True)
+
+    check("odd and even are both offered",
+          js("""[...document.querySelectorAll('#modal select[name="subset"] option')]
+                 .map(o => o.value).join(',')"""), "all,odd,even")
+    check("collate starts ticked, which is what people expect",
+          js("""(document.querySelector('#modal input[name="collate"]') || {}).checked"""), True)
+    check("reverse starts unticked",
+          js("""(document.querySelector('#modal input[name="reverse"]') || {}).checked"""), False)
+    check("pages per sheet starts at one",
+          js("""(document.querySelector('#modal select[name="per_sheet"]') || {}).value"""), "1")
+    check("every sheet count offered is one the backend lays out",
+          js("""[...document.querySelectorAll('#modal select[name="per_sheet"] option')]
+                 .map(o => o.value).join(',')"""),
+          lambda t: all(v in ("1", "2", "4", "6", "9", "16") for v in t.split(",")))
+    check("orientation can follow the document",
+          js("""(document.querySelector('#modal select[name="orientation"]') || {}).value"""),
+          "auto")
+    check("two-sided starts off",
+          js("""(document.querySelector('#modal select[name="duplex"]') || {}).value"""), "none")
+
+    print("")
+    print("== options the chosen printer cannot do are turned off ==")
+    # Microsoft Print to PDF cannot do either, and is on nearly every PC.
+    switched = js("""(function () {
+        const s = document.querySelector('#modal select[name="printer"]');
+        const want = [...s.options].find(o => o.value.indexOf('Print to PDF') >= 0);
+        if (!want) return 'absent';
+        s.value = want.value;
+        s.onchange();
+        const d = document.querySelector('#modal select[name="duplex"]');
+        return JSON.stringify({
+          duplex_off: d.disabled,
+          duplex_says_one_sided: d.value === 'none',
+          explained: (document.getElementById('print-can').textContent || '').length > 0
+        });
+      })()""")
+    if switched == "absent":
+        print("  SKIP Microsoft Print to PDF is not installed on this machine")
+    else:
+        import json as _json
+        state = _json.loads(switched)
+        check("two-sided is disabled for a printer that cannot do it",
+              state["duplex_off"], True)
+        check("and it reads as one-sided rather than lying",
+              state["duplex_says_one_sided"], True)
+        check("with a line saying why", state["explained"], True)
 
     js("document.querySelector('#modal [data-x]').click()")
     time.sleep(0.8)

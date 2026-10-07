@@ -176,8 +176,185 @@ if to_pdf in found["printers"]:
     check("and it is not blank", dark, lambda n: n > 100)
     printed.close()
     os.remove(target)
+
+    print("")
+    print("== the new options, printed for real ==")
+    # A seven-page document so odd/even and grouping have something to bite on.
+    many = fitz.open()
+    for n in range(7):
+        sheet = many.new_page(width=612, height=792)
+        sheet.insert_text(fitz.Point(80, 120), "Page %d" % (n + 1), fontsize=48)
+
+    def printed_pages(**options):
+        if os.path.exists(target):
+            os.remove(target)
+        result = printing.print_document(many, to_pdf, title="test",
+                                         destination=target, **options)
+        out = fitz.open(target)
+        count = out.page_count
+        out.close()
+        os.remove(target)
+        return result, count
+
+    done, count = printed_pages(subset="odd")
+    check("odd only prints 4 of 7 pages", count, 4)
+    check("and says so", done["pages"], 4)
+
+    done, count = printed_pages(subset="even")
+    check("even only prints 3 of 7", count, 3)
+
+    done, count = printed_pages(per_sheet=2)
+    check("two to a sheet needs 4 sheets for 7 pages", count, 4)
+    check("and reports the sheets, not the pages", done["sheets"], 4)
+    check("while still reporting 7 pages", done["pages"], 7)
+
+    done, count = printed_pages(per_sheet=4)
+    check("four to a sheet needs 2 sheets", count, 2)
+
+    done, count = printed_pages(pages="1-2", copies=3, collate=True)
+    check("three collated copies of two pages is six sheets", count, 6)
+
+    done, count = printed_pages(pages="1-2", copies=3, collate=False)
+    check("and uncollated is the same six", count, 6)
+
+    done, count = printed_pages(pages="1-3", reverse=True)
+    check("reversed prints the same three", count, 3)
+
+    done, count = printed_pages(pages="1", colour=False)
+    check("black and white still prints", count, 1)
+
+    done, count = printed_pages(pages="1", orientation="landscape")
+    check("landscape still prints", count, 1)
+    check("and the sheet really is wider than it is tall", done["sheets"], 1)
+
+    # Landscape has to reach the paper, not just the request. Printing one
+    # portrait page landscape should give a sheet wider than it is tall.
+    if os.path.exists(target):
+        os.remove(target)
+    printing.print_document(many, to_pdf, pages="1", title="test",
+                            destination=target, orientation="landscape")
+    turned = fitz.open(target)
+    shape = turned[0].rect
+    turned.close()
+    os.remove(target)
+    check("the paper came out landscape", shape.width > shape.height, True)
+
+    print("")
+    print("== two pages on a sheet really are both there ==")
+    if os.path.exists(target):
+        os.remove(target)
+    printing.print_document(many, to_pdf, pages="1-2", per_sheet=2,
+                            title="test", destination=target)
+    pair = fitz.open(target)
+    check("one sheet", pair.page_count, 1)
+    check("carrying two images", len(pair[0].get_images()), 2)
+    # Both halves must have ink on them. One image in the wrong cell would
+    # still count as two images while printing a blank half.
+    pix = pair[0].get_pixmap(dpi=72)
+    half = pix.height // 2
+
+    def inked(y0, y1):
+        return sum(1 for y in range(y0, y1, 2) for x in range(0, pix.width, 2)
+                   if sum(pix.pixel(x, y)) / 3 < 140)
+    check("the top half has ink", inked(0, half), lambda n: n > 20)
+    check("and so does the bottom half", inked(half, pix.height), lambda n: n > 20)
+    pair.close()
+    os.remove(target)
+    many.close()
 else:
     print("  SKIP Microsoft Print to PDF is not installed on this machine")
+
+print("")
+print("== odd and even, counted the way a person counts ==")
+# Deliberately not "every other one in the selection". Someone reprinting the
+# back of a stack picks pages 2-7 and wants 3, 5, 7 - the numbers printed on
+# the paper, not positions within their own choice.
+check("odd of a whole document", printing.apply_subset([0, 1, 2, 3, 4], "odd"), [0, 2, 4])
+check("even of a whole document", printing.apply_subset([0, 1, 2, 3, 4], "even"), [1, 3])
+check("odd of pages 2-7", printing.apply_subset([1, 2, 3, 4, 5, 6], "odd"), [2, 4, 6])
+check("even of pages 2-7", printing.apply_subset([1, 2, 3, 4, 5, 6], "even"), [1, 3, 5])
+check("all leaves it alone", printing.apply_subset([3, 1, 2], "all"), [3, 1, 2])
+check("an unknown word is treated as all",
+      printing.apply_subset([0, 1], "sideways"), [0, 1])
+check("a selection with none of them comes back empty",
+      printing.apply_subset([1, 3], "odd"), [])
+
+print("")
+print("== which pages land on which sheet ==")
+check("one page a sheet is one sheet each",
+      printing.build_sheets([0, 1, 2]), [[0], [1], [2]])
+check("two to a sheet pairs them",
+      printing.build_sheets([0, 1, 2, 3], per_sheet=2), [[0, 1], [2, 3]])
+check("an odd page out still gets a sheet",
+      printing.build_sheets([0, 1, 2], per_sheet=2), [[0, 1], [2]])
+check("four to a sheet",
+      printing.build_sheets([0, 1, 2, 3, 4], per_sheet=4), [[0, 1, 2, 3], [4]])
+
+# Reversing before grouping is what keeps a reversed two-up job readable: the
+# pair on the first sheet is the last two pages, in order, not the document
+# shuffled.
+check("reversed one-up", printing.build_sheets([0, 1, 2], reverse=True),
+      [[2], [1], [0]])
+check("reversed two-up groups after reversing",
+      printing.build_sheets([0, 1, 2, 3], per_sheet=2, reverse=True),
+      [[3, 2], [1, 0]])
+
+print("")
+print("== collated and not ==")
+check("collated repeats the document",
+      printing.build_sheets([0, 1], copies=3, collate=True),
+      [[0], [1], [0], [1], [0], [1]])
+check("uncollated repeats each sheet",
+      printing.build_sheets([0, 1], copies=3, collate=False),
+      [[0], [0], [0], [1], [1], [1]])
+check("one copy is the same either way",
+      printing.build_sheets([0, 1], copies=1, collate=False),
+      printing.build_sheets([0, 1], copies=1, collate=True))
+check("nothing to print stays nothing",
+      printing.build_sheets([], copies=4), [])
+
+print("")
+print("== the grid on a sheet ==")
+check("two up on a portrait sheet stacks them",
+      printing.grid_for(2, landscape=False), (1, 2))
+check("two up on a landscape sheet sits them side by side",
+      printing.grid_for(2, landscape=True), (2, 1))
+check("four up is square either way",
+      printing.grid_for(4, landscape=True), (2, 2))
+check("six up on portrait", printing.grid_for(6, landscape=False), (2, 3))
+check("six up on landscape", printing.grid_for(6, landscape=True), (3, 2))
+check("one up is the whole sheet", printing.grid_for(1, landscape=False), (1, 1))
+
+print("")
+print("== where each page sits on the sheet ==")
+# Reading order, left to right then down. Getting this wrong is the bug that
+# prints a handout nobody can follow.
+boxes = [printing.cell_box(n, 2, 2, 1000, 800) for n in range(4)]
+check("top left first", boxes[0], (0, 0, 500, 400))
+check("then top right", boxes[1], (500, 0, 500, 400))
+check("then bottom left", boxes[2], (0, 400, 500, 400))
+check("then bottom right", boxes[3], (500, 400, 500, 400))
+check("a gap comes out of the cells, not the sheet",
+      printing.cell_box(0, 2, 1, 1000, 800, gap=20), (0, 0, 490, 800))
+check("and the second cell starts after it",
+      printing.cell_box(1, 2, 1, 1000, 800, gap=20)[0], 510)
+check("cells never run past the sheet",
+      all(printing.cell_box(n, 3, 3, 999, 999)[0] +
+          printing.cell_box(n, 3, 3, 999, 999)[2] <= 999 for n in range(9)), True)
+
+print("")
+print("== what each printer says it can do ==")
+listing = printing.printers()
+caps = listing.get("can", {})
+check("every printer listed has an answer",
+      all(name in caps for name in listing["printers"]), True)
+check("each answer has the four facts",
+      all(set(c) == {"duplex", "collate", "colour", "max_copies"}
+          for c in caps.values()), True)
+check("copies is at least one everywhere",
+      all(c["max_copies"] >= 1 for c in caps.values()), True)
+check("the sheet counts offered are ones we can lay out",
+      set(listing["per_sheet"]) <= set(printing.SHEET_GRIDS), True)
 
 print("")
 print("== refusing what it cannot do, in words ==")
