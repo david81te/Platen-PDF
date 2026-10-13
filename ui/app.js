@@ -2111,7 +2111,8 @@ async function promptPrint() {
     '<div class="field"><label><input type="checkbox" name="reverse" ' +
     'style="width:auto"> Reverse order (last page first)</label></div>' +
 
-    '<p class="hint" id="print-can"></p>' +
+    '<p class="hint">Two-sided and colour are carried out by the printer, ' +
+    'so a printer that cannot do one of them will ignore it.</p>' +
     '<p class="hint">Leave pages empty for the whole document, or type ' +
     'something like <b>1-3, 7</b>. This prints what is on screen, including ' +
     'changes you have not saved.</p>',
@@ -2127,45 +2128,6 @@ async function promptPrint() {
       toast(sheets + ' sent to ' + done.printer);
     }, 'Print');
 
-  // Only offer what the chosen printer can actually do. A tick box that the
-  // driver ignores is worse than no tick box: the job comes out wrong and
-  // nothing explains why.
-  const caps = found.can || {};
-  const sel = document.querySelector('#modal select[name="printer"]');
-  const duplex = document.querySelector('#modal select[name="duplex"]');
-  const collate = document.querySelector('#modal input[name="collate"]');
-  const colour = document.querySelector('#modal select[name="colour"]');
-  const copies = document.querySelector('#modal input[name="copies"]');
-  const note = document.getElementById('print-can');
-
-  const describe = () => {
-    const can = caps[sel.value] || {};
-    const missing = [];
-    const set = (field, ok, label) => {
-      if (!field) return;
-      field.disabled = !ok;
-      if (!ok) {
-        missing.push(label);
-        // Leave it saying what will actually happen, not what was asked for.
-        if (field.name === 'duplex') field.value = 'none';
-        if (field.name === 'colour') field.value = '0';
-      }
-    };
-    set(duplex, can.duplex !== false, 'print both sides');
-    set(colour, can.colour !== false, 'print in colour');
-    if (collate) {
-      collate.disabled = can.collate === false;
-      if (can.collate === false) missing.push('collate');
-    }
-    if (copies && can.max_copies) {
-      copies.max = Math.min(99, can.max_copies);
-      if (parseInt(copies.value, 10) > copies.max) copies.value = copies.max;
-    }
-    note.textContent = missing.length
-      ? 'This printer cannot ' + missing.join(', ') + ', so those are turned off.'
-      : '';
-  };
-  if (sel) { sel.onchange = describe; describe(); }
 }
 
 async function showAbout() {

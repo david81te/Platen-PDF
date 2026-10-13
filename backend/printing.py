@@ -28,11 +28,6 @@ HORZRES, VERTRES = 8, 10            # printable area, in device pixels
 LOGPIXELSX, LOGPIXELSY = 88, 90     # dots per inch
 PHYSICALOFFSETX, PHYSICALOFFSETY = 112, 113
 
-# DeviceCapabilities indices, for asking a printer what it can actually do
-# rather than offering a choice that silently does nothing.
-DC_BINS, DC_DUPLEX, DC_ORIENTATION = 6, 7, 17
-DC_COPIES, DC_COLLATE, DC_COLORDEVICE = 18, 22, 32
-
 # DEVMODE values. win32con has these, but importing it here would make the
 # module unimportable on a machine without pywin32, and the tests need the
 # page-selection arithmetic without a printer anywhere near them.
@@ -61,36 +56,25 @@ SHEET_GRIDS = {1: (1, 1), 2: (1, 2), 4: (2, 2), 6: (2, 3), 9: (3, 3), 16: (4, 4)
 SUBSETS = ("all", "odd", "even")
 
 
-def capabilities(name: str, port: str = "") -> dict:
-    """What this printer can do. Anything unknown is reported as absent.
+# There is deliberately no "what can this printer do" function here any more.
+#
+# DeviceCapabilities does not read a local list, it goes and asks the printer,
+# and it does not release the GIL while it waits. A printer that is not on
+# this network - the office printer seen from home - never answers, so the
+# call sits there for about fifty seconds with every Python thread in the
+# program frozen behind it, the window included. Windows closes a program
+# that stops answering for five seconds, which is what happened to 1.3.0 the
+# first time someone pressed Print away from the office.
+#
+# A thread does not help: the thread holds the GIL, so even Thread.start()
+# blocks. The dialog therefore offers every option and lets the printer do
+# what it can, which is what it did before 1.3.0 and is worth far more than
+# greying out a control.
 
-    A choice the printer cannot honour is worse than no choice at all: the
-    person ticks it, the job prints wrong, and nothing says why.
-    """
-    answer = {"duplex": False, "collate": False, "colour": False, "max_copies": 1}
-    try:
-        import win32print
-    except ImportError:               # pragma: no cover - Windows only
-        return answer
-    for key, index in (("duplex", DC_DUPLEX), ("collate", DC_COLLATE),
-                       ("colour", DC_COLORDEVICE)):
-        try:
-            answer[key] = bool(win32print.DeviceCapabilities(name, port, index))
-        except Exception:
-            pass
-    try:
-        answer["max_copies"] = max(1, int(
-            win32print.DeviceCapabilities(name, port, DC_COPIES)))
-    except Exception:
-        pass
-    return answer
-
-
-# Asking Windows for the full printer list takes a couple of seconds on a
-# machine with network printers, because it goes and talks to them. That is
-# the whole delay between choosing Print and the dialog appearing, so the
-# answer is kept for a short while: long enough that opening the dialog twice
-# is instant, short enough that a printer added in Settings turns up quickly.
+# Asking Windows for the full printer list takes a moment on a machine with
+# network printers. The answer is kept for a short while: long enough that
+# opening the dialog twice is instant, short enough that a printer added in
+# Settings turns up quickly.
 _CACHE: dict = {}
 CACHE_SECONDS = 20.0
 
@@ -113,7 +97,7 @@ def printers(refresh: bool = False) -> dict:
     flags = win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS
     names: list[str] = []
     to_file: list[str] = []
-    can: dict[str, dict] = {}
+    ports: dict[str, str] = {}
     try:
         for entry in win32print.EnumPrinters(flags, None, 2):
             name = entry["pPrinterName"]
@@ -121,7 +105,7 @@ def printers(refresh: bool = False) -> dict:
             names.append(name)
             if port.upper() in FILE_PORTS:
                 to_file.append(name)
-            can[name] = capabilities(name, port)
+            ports[name] = port
     except Exception:
         # Level 2 can fail on a locked-down machine; the names still work.
         names = [entry[2] for entry in win32print.EnumPrinters(flags)]
@@ -129,8 +113,11 @@ def printers(refresh: bool = False) -> dict:
         default = win32print.GetDefaultPrinter()
     except Exception:
         default = names[0] if names else None
+    # Deliberately nothing here that talks to a printer. See the note above
+    # about DeviceCapabilities; this call has to stay quick, because it is
+    # what runs the moment someone presses Print.
     answer = {"printers": names, "default": default, "to_file": to_file,
-              "can": can, "per_sheet": sorted(SHEET_GRIDS)}
+              "ports": ports, "can": {}, "per_sheet": sorted(SHEET_GRIDS)}
     _CACHE["value"] = answer
     _CACHE["at"] = time.monotonic()
     return answer
@@ -311,11 +298,31 @@ def _devmode(printer: str, orientation: str, duplex: str, colour: bool,
     return mode
 
 
+def _wants_devmode(orientation: str, duplex: str) -> bool:
+    """Whether anything has been asked for that the driver has to be told.
+
+    Worth knowing because the two ways of opening a printer are not equally
+    priced. CreatePrinterDC answers in about half a second even when the
+    printer is switched off at the other end of a network that is not there;
+    handing the driver our own DEVMODE goes and talks to it, and takes the
+    best part of a minute to give up.
+
+    Only two of the choices have to be passed on. Black and white is done by
+    converting the image, collation by the order sheets are sent in, and
+    copies by sending them more than once - all of that happens here, so none
+    of it is a reason to go and talk to the printer. That leaves which way up
+    the paper is and whether to use both sides, which only the driver can do.
+    Everything else prints without the driver being asked anything.
+    """
+    return orientation in ("portrait", "landscape") or duplex in ("long", "short")
+
+
 def _context(printer: str, orientation: str, duplex: str, colour: bool,
              collate: bool):
     """A device context for this printer, carrying our settings if it can."""
     import win32ui
-    mode = _devmode(printer, orientation, duplex, colour, collate)
+    mode = (_devmode(printer, orientation, duplex, colour, collate)
+            if _wants_devmode(orientation, duplex) else None)
     if mode is not None:
         try:
             import win32gui

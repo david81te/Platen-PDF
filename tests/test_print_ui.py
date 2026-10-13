@@ -136,31 +136,26 @@ def drive(window):
           js("""(document.querySelector('#modal select[name="duplex"]') || {}).value"""), "none")
 
     print("")
-    print("== options the chosen printer cannot do are turned off ==")
-    # Microsoft Print to PDF cannot do either, and is on nearly every PC.
-    switched = js("""(function () {
-        const s = document.querySelector('#modal select[name="printer"]');
-        const want = [...s.options].find(o => o.value.indexOf('Print to PDF') >= 0);
-        if (!want) return 'absent';
-        s.value = want.value;
-        s.onchange();
-        const d = document.querySelector('#modal select[name="duplex"]');
-        return JSON.stringify({
-          duplex_off: d.disabled,
-          duplex_says_one_sided: d.value === 'none',
-          explained: (document.getElementById('print-can').textContent || '').length > 0
-        });
-      })()""")
-    if switched == "absent":
-        print("  SKIP Microsoft Print to PDF is not installed on this machine")
-    else:
-        import json as _json
-        state = _json.loads(switched)
-        check("two-sided is disabled for a printer that cannot do it",
-              state["duplex_off"], True)
-        check("and it reads as one-sided rather than lying",
-              state["duplex_says_one_sided"], True)
-        check("with a line saying why", state["explained"], True)
+    print("== the dialog opens without talking to any printer ==")
+    # 1.3.0 asked every printer what it supported the moment this dialog
+    # opened. An absent printer never answers and the call holds the GIL, so
+    # the whole program stopped and Windows closed it. The dialog must now
+    # come up from a local list alone.
+    opened_in = None
+    js("document.querySelector('#modal [data-x]').click()")
+    time.sleep(0.6)
+    began = time.time()
+    js("document.querySelector('li[data-act=\"print\"]').click()")
+    for _ in range(80):
+        if js("document.getElementById('modal-back').classList.contains('on')"):
+            opened_in = time.time() - began
+            break
+        time.sleep(0.1)
+    check("it opens promptly", opened_in, lambda t: t is not None and t < 6.0)
+    check("and says plainly that the printer decides, rather than "
+          "pretending to know",
+          (js("document.getElementById('modal').innerText") or "").lower(),
+          lambda t: "printer" in t)
 
     js("document.querySelector('#modal [data-x]').click()")
     time.sleep(0.8)

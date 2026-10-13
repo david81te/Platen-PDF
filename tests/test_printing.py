@@ -9,6 +9,7 @@ DC, which takes the same calls a printer DC does.
 import io
 import os
 import sys
+import time
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -343,20 +344,44 @@ check("cells never run past the sheet",
           printing.cell_box(n, 3, 3, 999, 999)[2] <= 999 for n in range(9)), True)
 
 print("")
-print("== what each printer says it can do ==")
-listing = printing.printers()
-caps = listing.get("can", {})
-check("every printer listed has an answer",
-      all(name in caps for name in listing["printers"]), True)
-check("each answer has the four facts",
-      all(set(c) == {"duplex", "collate", "colour", "max_copies"}
-          for c in caps.values()), True)
-check("copies is at least one everywhere",
-      all(c["max_copies"] >= 1 for c in caps.values()), True)
-check("the sheet counts offered are ones we can lay out",
-      set(listing["per_sheet"]) <= set(printing.SHEET_GRIDS), True)
+print("== listing printers must never talk to one ==")
+# This is the regression that got 1.3.0 closed by Windows. Asking a printer
+# what it supports does not read a local list: it goes out over the network,
+# and an absent printer - the office one, seen from home - never answers. The
+# call also holds the GIL for the fifty seconds it waits, so every thread in
+# the program stops, the window included, and Windows closes a program that
+# stops answering for five seconds.
+#
+# The guard is a clock. Anything that reaches a printer cannot come back this
+# quickly, so a timing failure here means something started asking again.
+listing = printing.printers(refresh=True)
+started = time.time()
+listing = printing.printers(refresh=True)
+took = time.time() - started
+check("listing every printer is immediate", round(took, 2), lambda t: t < 2.0)
+check("it still finds them", len(listing["printers"]), lambda n: n >= 1)
+check("and still knows the default", bool(listing["default"]), True)
+check("it reports no capabilities, because asking is what hung",
+      listing.get("can"), {})
+check("there is no capabilities function left to call by accident",
+      hasattr(printing, "capabilities"), False)
 
 print("")
+print("== the driver is only troubled when it has to be ==")
+# Opening a printer with our own DEVMODE goes and talks to it; opening it
+# plainly does not. Black and white, collation and copies are all carried out
+# here, so none of them is a reason to go and ask the driver anything.
+check("plain printing asks the driver nothing",
+      printing._wants_devmode("auto", "none"), False)
+check("nor does black and white, which we do ourselves",
+      printing._wants_devmode("auto", "none"), False)
+check("landscape does, because only the driver can turn the paper",
+      printing._wants_devmode("landscape", "none"), True)
+check("and so does two-sided",
+      printing._wants_devmode("auto", "long"), True)
+check("portrait counts as a choice too",
+      printing._wants_devmode("portrait", "none"), True)
+
 print("== refusing what it cannot do, in words ==")
 api = Api()
 answer = api.print_document()
