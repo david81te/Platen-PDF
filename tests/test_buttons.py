@@ -126,11 +126,19 @@ def drive(window):
         api.close_doc()
 
     def fresh(path=SOURCE):
-        js("S.compare=null; S.hits=[]; S.selectedAnnot=null;")
+        # S.info has to go before the reopen, not after. openOnStart is
+        # asynchronous, so a wait that only looks for "a document with pages"
+        # is satisfied immediately by the one still on screen - and then the
+        # action under test is measured against the previous document, which
+        # is usually dirty. That reads as "claimed to act but nothing
+        # changed" for every action judged by the dirty flag rather than by
+        # the page count, and only under load, when the reopen is slow enough
+        # for the race to be visible.
+        js("S.compare=null; S.hits=[]; S.selectedAnnot=null; S.info=null;")
         reset_tabs()
         js("window.openOnStart(%r)" % path.replace("\\", "/"))
-        for _ in range(60):
-            if js("S.info && S.info.page_count"):
+        for _ in range(80):
+            if js("!!(S.info && S.info.page_count && !S.info.dirty)"):
                 return True
             time.sleep(0.2)
         return False
