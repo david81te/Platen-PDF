@@ -181,20 +181,25 @@
     </div>
   </aside>
 
-  <section id="viewer">
-    <div id="stage">
-      <div id="pagewrap">
-        <img id="pageimg" alt="">
-        <div id="overlay"></div>
-        <canvas id="scratch"></canvas>
+  <div id="panes">
+   <section class="vpane" data-pane="0">
+    <div class="viewer" id="viewer">
+    <div class="stage" id="stage">
+      <div class="pagewrap" id="pagewrap">
+        <img class="pageimg" id="pageimg" alt="">
+        <div class="overlay" id="overlay"></div>
+        <canvas class="scratch" id="scratch"></canvas>
       </div>
     </div>
-    <div id="empty">
+    <div class="empty" id="empty">
       <h1>Platen PDF</h1>
       <p>Open a PDF, Word document, spreadsheet or image to begin.</p>
       <button id="empty-open">Open a file…</button>
     </div>
-  </section>
+  </div>
+   </section>
+  </div>
+
 
   <aside id="inspector">
     <button id="insp-toggle" title="Hide panel" aria-expanded="true" aria-controls="insp-body">

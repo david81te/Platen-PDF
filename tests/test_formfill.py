@@ -17,7 +17,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 
-import sandbox  # noqa: F401,E402
+import sandbox  # noqa: E402
 
 import pikepdf  # noqa: E402
 import pymupdf as fitz  # noqa: E402
@@ -30,7 +30,11 @@ from backend.session import PdfError  # noqa: E402
 
 OUT = os.path.join(ROOT, "tests", "output")
 UI = os.path.join(ROOT, "ui", "index.html")
-FORM = os.path.join(OUT, "radioform.pdf")
+# Built into this suite's own temp folder rather than the shared output
+# directory. A fixture two suites share is a fixture one of them can
+# leave locked, and then the other fails for a reason that has nothing
+# to do with what it is testing.
+FORM = os.path.join(sandbox.DIR, "radioform.pdf")
 fails = []
 
 
@@ -139,7 +143,7 @@ check("and again to Red", radios(doc),
 
 print("")
 print("== and it survives being saved ==")
-saved = os.path.join(OUT, "radioform-saved.pdf")
+saved = os.path.join(sandbox.DIR, "radioform-saved.pdf")
 doc.save(saved)
 doc.close()
 doc = fitz.open(saved)

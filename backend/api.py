@@ -12,7 +12,8 @@ import traceback
 
 import pymupdf as fitz
 
-from . import (account, annots, compare as comparison, convert, decorate,
+from . import (account, annots, boxes as tickboxes, compare as comparison,
+               convert, decorate,
                forms, pages, prefs as preferences, printing, security,
                shell_integration, signatures, sync as syncing, textedit,
                updates, version)
@@ -84,6 +85,21 @@ class Api:
     @property
     def _session(self) -> Session:
         return self._docs[self._active]
+
+    def _session_for(self, tab=None) -> Session:
+        """The document a particular tab is holding.
+
+        Reading is allowed from any tab, because two can be on screen at once
+        once the window is split, and the pane that is not in front still has
+        to be drawn. Changing anything still goes through _session: edits
+        belong to the pane with the tools in it, which is the active tab.
+        """
+        if tab is None:
+            return self._session
+        index = int(tab)
+        if index < 0 or index >= len(self._docs):
+            raise PdfError("That tab is no longer open.")
+        return self._docs[index]
 
     def _tab_state(self) -> dict:
         tabs = []
@@ -402,20 +418,21 @@ class Api:
         return {"open": False, **self._tab_state()}
 
     @endpoint
-    def doc_info(self):
-        return self._session.info()
+    def doc_info(self, tab=None):
+        return self._session_for(tab).info()
 
     @endpoint
-    def render(self, index, zoom=1.0):
-        return self._session.render(int(index), float(zoom))
+    def render(self, index, zoom=1.0, tab=None):
+        return self._session_for(tab).render(int(index), float(zoom))
 
     @endpoint
-    def thumbs(self, start=0, count=20, width=150):
-        return self._session.thumbnails(int(start), int(count), int(width))
+    def thumbs(self, start=0, count=20, width=150, tab=None):
+        return self._session_for(tab).thumbnails(
+            int(start), int(count), int(width))
 
     @endpoint
-    def page_sizes(self):
-        return self._session.page_sizes()
+    def page_sizes(self, tab=None):
+        return self._session_for(tab).page_sizes()
 
     def save(self):
         """Save, falling back to Save As when there is no path yet.
@@ -660,8 +677,8 @@ class Api:
         return self._mutate(annots.add_image, int(index), rect, chosen[0])
 
     @endpoint
-    def annot_list(self, index):
-        return annots.listing(self._session.require(), int(index))
+    def annot_list(self, index, tab=None):
+        return annots.listing(self._session_for(tab).require(), int(index))
 
     @endpoint
     def annot_update(self, index, annot_id, rect=None, content=None, color=None,
@@ -845,13 +862,26 @@ class Api:
     # ---- forms ----------------------------------------------------------
 
     @endpoint
-    def form_list(self, index=None):
-        return forms.listing(self._session.require(),
+    def form_list(self, index=None, tab=None):
+        return forms.listing(self._session_for(tab).require(),
                              None if index is None else int(index))
 
     @endpoint
     def form_set(self, index, name, value):
         return self._mutate(forms.set_value, int(index), name, value)
+
+    @endpoint
+    def boxes_find(self, index, tab=None):
+        """Squares that look like tick boxes but have no form field behind them.
+
+        Only looks; changes nothing. Costs a few milliseconds, so the window
+        can ask for it every time it draws a page.
+        """
+        return tickboxes.find(self._session_for(tab).require(), int(index))
+
+    @endpoint
+    def boxes_toggle(self, index, rect):
+        return self._mutate(tickboxes.toggle, int(index), rect)
 
     @endpoint
     def form_set_widget(self, index, xref, value):

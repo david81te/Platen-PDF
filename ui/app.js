@@ -1,6 +1,6 @@
 /* Platen PDF front end. Talks to the Python backend through pywebview. */
 
-const S = {
+let S = {
   info: null,
   page: 0,
   zoom: 1.25,
@@ -27,12 +27,60 @@ const S = {
   fields: [],
   selectedField: null,
   selectedXref: null,
+  boxes: [],
   compare: null,     // last comparison result
   comparePage: -1,
   findQuery: '',
 };
 
 const $ = (id) => document.getElementById(id);
+
+/* ---------- panes ----------
+   The viewer can be split in two. Only one pane has focus at a time, and S
+   points at that pane's own state, so every tool carries on working on "the
+   pane in front" without knowing panes exist at all. Elements inside a pane
+   are found by class within that pane rather than by id, because there may
+   be two of each. */
+
+const PANES = [];
+let focusedPane = 0;
+
+function pane(n) { return PANES[n === undefined ? focusedPane : n]; }
+function paneRoot(n) { return pane(n).root; }
+// Named for what it is: the element of this name inside the pane in front.
+function paneEl(name, n) { return pane(n).root.querySelector('.' + name); }
+
+// Everything a pane remembers for itself. A pane that is not in front keeps
+// its page, its zoom and what is selected in it, so coming back to it is
+// where you left it rather than back at the top.
+function freshPaneState() {
+  return {
+    info: null, page: 0, zoom: 1.25, zoomMode: 'width', sizes: null,
+    layout: null, scale: 1, hits: [], hitIndex: -1, annots: [],
+    selectedAnnot: null, thumbLoaded: 0, thumbBusy: false,
+    fields: [], selectedField: null, selectedXref: null, boxes: [],
+    compare: null, comparePage: -1, editing: null, redactions: [],
+    // Shared settings - the tool, the colours, the signature - deliberately
+    // stay on S itself and are copied across, because they belong to the
+    // person rather than to a pane.
+  };
+}
+
+// Settings that follow the person from pane to pane rather than belonging to
+// one of them.
+const SHARED_KEYS = ['tool', 'color', 'stroke', 'lineWidth', 'stamp',
+                     'stampColor', 'fontSize', 'sig', 'findQuery'];
+
+function registerPane(root, tab) {
+  const n = PANES.length;
+  root.dataset.pane = String(n);
+  PANES.push({ root: root, state: n === 0 ? S : freshPaneState(),
+               tab: tab || 0, tabs: [] });
+  if (n === 0) root.classList.add('focused');
+  return n;
+}
+
+registerPane(document.querySelector('.vpane[data-pane="0"]'), 0);
 const el = (tag, cls, html) => {
   const n = document.createElement(tag);
   if (cls) n.className = cls;
@@ -141,8 +189,8 @@ function setInfo(info) {
   if (info.needs_password) { askPassword(info); return; }
   if (info.open === false) {
     S.info = null;
-    $('stage').classList.remove('on');
-    $('empty').style.display = 'grid';
+    paneEl('stage').classList.remove('on');
+    paneEl('empty').style.display = 'grid';
     $('docname').textContent = 'No document open';
     $('pane-thumbs').innerHTML = '';
     $('pagetotal').textContent = '0';
@@ -150,8 +198,8 @@ function setInfo(info) {
     return;
   }
   S.info = info;
-  $('empty').style.display = 'none';
-  $('stage').classList.add('on');
+  paneEl('empty').style.display = 'none';
+  paneEl('stage').classList.add('on');
   $('docname').innerHTML = '<b>' + escapeHtml(info.name) + '</b>' +
     (info.dirty ? ' • unsaved changes' : '') +
     (info.encrypted ? ' • encrypted' : '');
@@ -180,11 +228,19 @@ async function refresh(full = true) {
 const STAGE_PAD = 44;
 const SCROLLBAR = 18;
 
+let quietTimer = null;
+function queueQuietRepaint() {
+  clearTimeout(quietTimer);
+  quietTimer = setTimeout(() => {
+    if (PANES.length > 1) paintQuietPanes();
+  }, 160);
+}
+
 function applyZoomMode() {
   if (S.zoomMode === 'fixed' || !S.info || !S.sizes) return;
   const size = S.sizes[S.page];
   if (!size) return;
-  const view = $('viewer');
+  const view = paneEl('viewer');
   const availH = Math.max(120, view.clientHeight - STAGE_PAD);
   let availW = Math.max(120, view.clientWidth - STAGE_PAD);
 
@@ -209,14 +265,14 @@ async function drawPage() {
   applyZoomMode();
   const data = await run('render', S.page, S.zoom);
   if (!data) return;
-  const img = $('pageimg');
+  const img = paneEl('pageimg');
   img.src = data.image;
   img.width = data.width;
   img.height = data.height;
-  const wrap = $('pagewrap');
+  const wrap = paneEl('pagewrap');
   wrap.style.width = data.width + 'px';
   wrap.style.height = data.height + 'px';
-  const cv = $('scratch');
+  const cv = paneEl('scratch');
   cv.width = data.width; cv.height = data.height;
   cv.style.width = data.width + 'px'; cv.style.height = data.height + 'px';
   S.scale = data.width / data.pdf_width;
@@ -232,7 +288,7 @@ async function drawPage() {
 const toPt = (px) => px / S.scale;
 const toPx = (pt) => pt * S.scale;
 function localPoint(ev) {
-  const r = $('overlay').getBoundingClientRect();
+  const r = paneEl('overlay').getBoundingClientRect();
   return { x: ev.clientX - r.left, y: ev.clientY - r.top };
 }
 
@@ -246,9 +302,12 @@ let overlayRun = 0;
 async function buildOverlay() {
   const mine = ++overlayRun;
   const stale = () => mine !== overlayRun;
-  const ov = $('overlay');
+  const ov = paneEl('overlay');
   ov.innerHTML = '';
-  ov.className = '';
+  // Keep the class that identifies it. It used to be an id, where
+  // clearing the class list was harmless; now it is how the element is
+  // found inside its pane, and wiping it loses the overlay for good.
+  ov.className = 'overlay';
   cancelEdit();
   if (!S.info) return;
 
@@ -340,8 +399,28 @@ async function buildOverlay() {
       hit.onclick = (e) => { e.stopPropagation(); editField(f, hit); };
       ov.appendChild(hit);
     });
+    // Squares that are only drawings. Plenty of forms are printed rather
+    // than built, so the little square has no field behind it and no reader
+    // will let you tick it. Platen finds them and does.
+    S.boxes = (await run('boxes_find', S.page)) || [];
+    if (stale()) return;
+    S.boxes.forEach((b, i) => {
+      const hit = el('div', 'boxhit' + (b.ticked ? ' ticked' : ''));
+      Object.assign(hit.style, {
+        left: toPx(b.rect[0]) + 'px', top: toPx(b.rect[1]) + 'px',
+        width: Math.max(12, toPx(b.rect[2] - b.rect[0])) + 'px',
+        height: Math.max(12, toPx(b.rect[3] - b.rect[1])) + 'px',
+      });
+      hit.title = b.ticked
+        ? 'Ticked — click to clear it'
+        : 'A drawn box, not a form field. Click to tick it.';
+      hit.dataset.box = i;
+      hit.onclick = (e) => { e.stopPropagation(); toggleDrawnBox(b, hit); };
+      ov.appendChild(hit);
+    });
   } else {
     S.fields = [];
+    S.boxes = [];
   }
 
   if (S.compare) {
@@ -498,7 +577,7 @@ function openFieldEditor(field, hit) {
     // to the size of the text that will end up in it.
     fontSize: Math.max(9, Math.min(28, h * 0.62)) + 'px',
   });
-  $('overlay').appendChild(box);
+  paneEl('overlay').appendChild(box);
   S.editing = { box };
   box.focus();
   box.setSelectionRange(box.value.length, box.value.length);
@@ -540,6 +619,23 @@ function stepField(from, direction) {
   setTimeout(() => editField(next, hitFor(next.xref)), 60);
 }
 
+// Ticking a square that is only a drawing. The tick is an ordinary ink
+// annotation, so it undoes, flattens and prints like anything else drawn on
+// the page, and clicking the same square again takes it away.
+async function toggleDrawnBox(box, hit) {
+  const want = !box.ticked;
+  if (hit) hit.classList.toggle('ticked', want);
+  box.ticked = want;
+  const r = await run('boxes_toggle', S.page, box.rect);
+  if (!r) {
+    box.ticked = !want;
+    if (hit) hit.classList.toggle('ticked', !want);
+    return;
+  }
+  await refresh(false);
+  if (S.tool === 'field') drawInspector();
+}
+
 function editField(field, hit) {
   S.selectedField = field.name;
   S.selectedXref = field.xref;
@@ -564,9 +660,16 @@ function editField(field, hit) {
 
 function formInspector() {
   const fields = S.fields || [];
+  const drawn = S.boxes || [];
+  const drawnNote = drawn.length
+    ? '<p class="hint">' + drawn.length + ' drawn square' +
+      (drawn.length === 1 ? '' : 's') + ' on this page with no field behind ' +
+      'them. Click one on the page to tick it, and again to clear it.</p>'
+    : '';
   let html = '<h3>form fields</h3>';
   if (!fields.length) {
-    return html + '<p class="hint">No fields on this page. Drag a box to add one.</p>';
+    return html + '<p class="hint">No fields on this page. Drag a box to add one.</p>' +
+      drawnNote;
   }
   fields.forEach((f, i) => {
     const id = 'ff' + i;
@@ -595,6 +698,7 @@ function formInspector() {
       '<div class="n"><span>' + escapeHtml(f.name) + '</span><em>' + f.kind +
       (f.required ? ' &middot; required' : '') + '</em></div>' + control + '</div>';
   });
+  html += drawnNote;
   html += '<div class="field" style="margin-top:12px">' +
     '<button id="form-export" style="width:100%">Export values to CSV...</button></div>' +
     '<div class="field"><button id="form-import" style="width:100%">Import values from CSV...</button></div>' +
@@ -639,7 +743,7 @@ function drawLineSelection(a) {
   // A line has no rectangle to resize: it has two ends. Round grips move each
   // end (so the point of an arrow can be aimed anywhere), and the square grip
   // in the middle slides the whole thing.
-  const ov = $('overlay');
+  const ov = paneEl('overlay');
   let pts = a.points.map((p) => p.slice());
 
   const guide = el('div', 'lineguide');
@@ -735,7 +839,7 @@ function drawSelection(a) {
   kill.onclick = (e) => { e.stopPropagation(); deleteSelected(); };
   kill.onpointerdown = (e) => e.stopPropagation();
   frame.appendChild(kill);
-  $('overlay').appendChild(frame);
+  paneEl('overlay').appendChild(frame);
 
   let drag = null;
   frame.addEventListener('pointerdown', (e) => {
@@ -811,10 +915,10 @@ function showBubble(a) {
     '<div class="acts"><button data-edit>Edit</button>' +
     '<button data-del class="danger">Delete</button></div>';
 
-  const left = Math.min(toPx(a.rect[0]) + 22, Math.max(0, $('overlay').clientWidth - 290));
+  const left = Math.min(toPx(a.rect[0]) + 22, Math.max(0, paneEl('overlay').clientWidth - 290));
   bubble.style.left = Math.max(0, left) + 'px';
   bubble.style.top = (toPx(a.rect[3]) + 6) + 'px';
-  $('overlay').appendChild(bubble);
+  paneEl('overlay').appendChild(bubble);
 
   bubble.querySelector('.x').onclick = () => { S.selectedAnnot = null; closeBubble(); buildOverlay(); };
   bubble.querySelector('[data-edit]').onclick = () => editAnnot(a);
@@ -913,13 +1017,13 @@ function openEditor(rect, value, multiline, onSave, sizePt) {
     lineHeight: multiline ? 1.3 : inner + 'px',
     paddingTop: multiline ? '3px' : '0',
   });
-  $('overlay').appendChild(box);
+  paneEl('overlay').appendChild(box);
 
   const bar = el('div', 'editbar',
     '<button data-save class="primary">Save</button><button data-cancel>Cancel</button>');
   bar.style.left = toPx(rect[0]) - pad + 'px';
   bar.style.top = toPx(rect[3]) + 8 + 'px';
-  $('overlay').appendChild(bar);
+  paneEl('overlay').appendChild(bar);
 
   S.editing = { box, bar };
   box.focus();
@@ -962,18 +1066,22 @@ function editBlock(b) {
 
 let drag = null;
 
-$('overlay').addEventListener('pointerdown', (ev) => {
+$('panes').addEventListener('pointerdown', (ev) => {
+  // Clicking in a pane puts it in front, before anything else looks at S.
+  const inPane = ev.target.closest('.vpane');
+  if (inPane) focusPane(Number(inPane.dataset.pane));
+  if (!ev.target.closest('.overlay')) return;
   if (!S.info || S.tool === 'select' || S.tool === 'text') return;
   if (ev.target.closest('.annothit, .selframe, .handle, .bubble')) return;
   if (ev.target.classList.contains('hit')) return;
   const p = localPoint(ev);
-  $('overlay').setPointerCapture(ev.pointerId);
+  paneEl('overlay').setPointerCapture(ev.pointerId);
 
   if (S.tool === 'note') { addNote(p); return; }
 
   if (S.tool === 'ink') {
     drag = { kind: 'ink', points: [[toPt(p.x), toPt(p.y)]] };
-    const ctx = $('scratch').getContext('2d');
+    const ctx = paneEl('scratch').getContext('2d');
     ctx.beginPath(); ctx.moveTo(p.x, p.y);
     ctx.lineWidth = S.lineWidth * S.scale;
     ctx.strokeStyle = rgbCss(S.stroke);
@@ -982,16 +1090,16 @@ $('overlay').addEventListener('pointerdown', (ev) => {
   }
 
   const marquee = el('div', 'marquee');
-  $('overlay').appendChild(marquee);
+  paneEl('overlay').appendChild(marquee);
   drag = { kind: 'rect', x0: p.x, y0: p.y, node: marquee };
 });
 
-$('overlay').addEventListener('pointermove', (ev) => {
+$('panes').addEventListener('pointermove', (ev) => {
   if (!drag) return;
   const p = localPoint(ev);
   if (drag.kind === 'ink') {
     drag.points.push([toPt(p.x), toPt(p.y)]);
-    const ctx = $('scratch').getContext('2d');
+    const ctx = paneEl('scratch').getContext('2d');
     ctx.lineTo(p.x, p.y); ctx.stroke();
     return;
   }
@@ -1000,13 +1108,13 @@ $('overlay').addEventListener('pointermove', (ev) => {
   Object.assign(drag.node.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px' });
 });
 
-$('overlay').addEventListener('pointerup', async (ev) => {
+$('panes').addEventListener('pointerup', async (ev) => {
   if (!drag) return;
   const d = drag; drag = null;
   const p = localPoint(ev);
 
   if (d.kind === 'ink') {
-    $('scratch').getContext('2d').clearRect(0, 0, $('scratch').width, $('scratch').height);
+    paneEl('scratch').getContext('2d').clearRect(0, 0, paneEl('scratch').width, paneEl('scratch').height);
     if (d.points.length > 2) {
       await run('annot_ink', S.page, [d.points], S.stroke, S.lineWidth);
       await refresh(false);
@@ -1140,18 +1248,59 @@ async function refreshTabs() {
   if (!state) return;
   const host = $('tabs');
   host.innerHTML = '';
+
+  // Any tab the panes have not claimed belongs to the first one. New
+  // documents arrive this way, and so does everything before the first split.
+  const claimed = PANES.reduce((all, p) => all.concat(p.tabs), []);
   state.tabs.forEach((t) => {
-    const tab = el('div', 'dtab' + (t.active ? ' on' : ''));
-    tab.title = t.path || t.name;
+    // A document you open belongs where you are working, not always on the
+    // left.
+    if (claimed.indexOf(t.index) < 0) PANES[focusedPane].tabs.push(t.index);
+  });
+  // Tabs that have been closed are no longer anyone's.
+  const alive = state.tabs.map((t) => t.index);
+  PANES.forEach((p) => { p.tabs = p.tabs.filter((t) => alive.indexOf(t) >= 0); });
+
+  // The document the backend calls active is, by definition, the one the pane
+  // in front is showing - opening a file makes it active. Without this the
+  // new tab sat there looking unopened while its document was on screen.
+  if (state.active !== undefined && state.active !== null
+      && paneHolding(state.active) === focusedPane) {
+    PANES[focusedPane].tab = state.active;
+  }
+  // A pane whose shown tab has gone shows whatever it has left.
+  PANES.forEach((p) => {
+    if (p.tabs.length && p.tabs.indexOf(p.tab) < 0) p.tab = p.tabs[0];
+  });
+
+  const makeTab = (t, paneIndex) => {
+    const shown = PANES[paneIndex] && PANES[paneIndex].tab === t.index;
+    const live = shown && paneIndex === focusedPane;
+    const tab = el('div', 'dtab' + (live ? ' on' : (shown ? ' showing' : '')));
+    tab.title = (t.path || t.name) + ' \u2014 drag to the side to split the window';
     tab.innerHTML = (t.dirty ? '<span class="dot"></span>' : '') +
       '<span class="nm">' + escapeHtml(t.name) +
       (t.open ? ' <small>(' + t.page_count + ')</small>' : '') + '</span>' +
-      '<span class="cl" title="Close">✕</span>';
-    tab.onclick = (e) => {
-      if (e.target.classList.contains('cl')) return closeTab(t.index);
-      if (!t.active) switchTab(t.index);
+      '<span class="cl" title="Close">\u2715</span>';
+    tab.onpointerdown = (e) => {
+      if (e.target.classList.contains('cl')) return;
+      startTabDrag(e, t.index);
     };
-    host.appendChild(tab);
+    tab.onclick = async (e) => {
+      if (e.target.classList.contains('cl')) return closeTab(t.index);
+      if (paneIndex !== focusedPane) await focusPane(paneIndex);
+      if (!shown) await showTabInPane(paneIndex, t.index);
+    };
+    return tab;
+  };
+
+  PANES.forEach((p, i) => {
+    const group = el('div', 'tabgroup' + (i === focusedPane ? ' focused' : ''));
+    p.tabs.forEach((index) => {
+      const t = state.tabs.find((x) => x.index === index);
+      if (t) group.appendChild(makeTab(t, i));
+    });
+    host.appendChild(group);
   });
 }
 
@@ -1669,6 +1818,11 @@ function drawInspector() {
   } else if (t === 'select') {
     html += '<p class="hint">Pick a tool from the toolbar. Use <b>T</b> to edit ' +
       'existing text in place.</p>' +
+      ((S.boxes && S.boxes.length)
+        ? '<p class="hint">This page has ' + S.boxes.length + ' drawn tick box' +
+          (S.boxes.length === 1 ? '' : 'es') + ' with no form field behind ' +
+          'them. Click one to tick it.</p>'
+        : '') +
       (S.fields && S.fields.length
         ? '<p class="hint">This page has ' + S.fields.length + ' form field(s). ' +
           'Click one to fill it in.</p>'
@@ -2510,7 +2664,9 @@ function queueZoom() {
   syncZoomLabel();
 }
 
-$('viewer').addEventListener('wheel', (e) => {
+$('panes').addEventListener('wheel', (e) => {
+  const overPane = e.target.closest('.vpane');
+  if (overPane) focusPane(Number(overPane.dataset.pane));
   if (!S.info) return;
 
   if (e.ctrlKey || e.metaKey) {
@@ -2522,7 +2678,7 @@ $('viewer').addEventListener('wheel', (e) => {
     return;
   }
 
-  const view = $('viewer');
+  const view = paneEl('viewer');
   const slack = view.scrollHeight - view.clientHeight;
   const atTop = view.scrollTop <= 1;
   const atBottom = view.scrollTop >= slack - 1;
@@ -2597,3 +2753,277 @@ ready().then(async () => {
   const pending = await run('pending_open');
   if (pending && pending.path) await window.openOnStart(pending.path);
 });
+
+/* ---------- moving between panes ---------- */
+
+// Focus is what decides which document the tools act on. Moving it swaps S to
+// that pane's own state and tells the backend, so an edit lands in the pane
+// the person is looking at.
+async function focusPane(n) {
+  if (!PANES[n] || n === focusedPane) return;
+  PANES[focusedPane].state = S;
+  focusedPane = n;
+  const next = PANES[n];
+  // Carry the tool and colours across; they belong to the person, not a pane.
+  SHARED_KEYS.forEach((k) => { next.state[k] = S[k]; });
+  S = next.state;
+  PANES.forEach((p, i) => p.root.classList.toggle('focused', i === focusedPane));
+  if (await run('tab_switch', next.tab)) {
+    await refresh(false);
+    drawInspector();
+    refreshTabs();
+  }
+}
+
+/* ---------- splitting the window in two ----------
+
+   The backend has a list of open documents and one of them is active. Which
+   pane shows which document is the window's business entirely, so all of that
+   lives here: each pane owns a group of tabs and shows one of them.
+
+   Only the pane in front carries the tools. The other one shows its page and
+   nothing else, which is what "view two PDFs side by side" asks for and
+   avoids two sets of half-live annotations fighting over the same document.
+   Clicking the other pane puts it in front and it gets everything. */
+
+function isSplit() { return PANES.length > 1; }
+
+function paneHolding(tabIndex) {
+  for (let i = 0; i < PANES.length; i++) {
+    if (PANES[i].tabs.indexOf(tabIndex) >= 0) return i;
+  }
+  return 0;
+}
+
+// A second pane is the first one copied. Ids belong to pane 0 alone - they
+// have to mean exactly one element - so the copy loses them and is found by
+// class, like everything else inside a pane.
+function addPane(side) {
+  const host = $('panes');
+  const clone = PANES[0].root.cloneNode(true);
+  clone.querySelectorAll('[id]').forEach((n) => n.removeAttribute('id'));
+  clone.classList.remove('focused');
+  clone.querySelectorAll('.overlay').forEach((n) => { n.innerHTML = ''; });
+  clone.querySelectorAll('.empty button').forEach((b) => {
+    b.onclick = () => ACTIONS.open();
+  });
+  if (side === 'left') host.insertBefore(clone, PANES[0].root);
+  else host.appendChild(clone);
+  const n = registerPane(clone, 0);
+  // Inserting on the left would make the new pane come second in PANES while
+  // sitting first on screen. Renumbering keeps data-pane matching the order
+  // things actually appear in, which is what the drop targets rely on.
+  renumberPanes();
+  return PANES.indexOf(PANES[n]);
+}
+
+function renumberPanes() {
+  const host = $('panes');
+  const inOrder = [...host.querySelectorAll('.vpane')];
+  PANES.sort((a, b) => inOrder.indexOf(a.root) - inOrder.indexOf(b.root));
+  PANES.forEach((p, i) => { p.root.dataset.pane = String(i); });
+  focusedPane = PANES.findIndex((p) => p.root.classList.contains('focused'));
+  if (focusedPane < 0) focusedPane = 0;
+  S = PANES[focusedPane].state;
+}
+
+async function closeSplit(keep) {
+  if (!isSplit()) return;
+  const keeping = PANES[keep];
+  PANES.filter((p) => p !== keeping).forEach((p) => p.root.remove());
+  keeping.tabs = PANES.reduce((all, p) => all.concat(p.tabs), []);
+  PANES.length = 0;
+  PANES.push(keeping);
+  keeping.root.classList.add('focused');
+  renumberPanes();
+  await showTabInPane(0, keeping.tab);
+  refreshTabs();
+}
+
+// Put a document into a pane and draw it there.
+async function showTabInPane(n, tabIndex) {
+  const p = PANES[n];
+  if (!p) return;
+  p.tab = tabIndex;
+  if (p.tabs.indexOf(tabIndex) < 0) p.tabs.push(tabIndex);
+  if (n === focusedPane) {
+    if (await run('tab_switch', tabIndex)) {
+      setInfo(await run('doc_info'));
+      p.state.sizes = null;
+      await drawPage();
+    }
+  } else {
+    await paintQuietPane(n);
+  }
+  refreshTabs();
+}
+
+// A pane that is not in front: its page, drawn at a size that fits it, and no
+// overlay at all.
+async function paintQuietPane(n) {
+  const p = PANES[n];
+  const st = p.state;
+  const info = await run('doc_info', p.tab);
+  st.info = info && info.open === false ? null : info;
+  const stage = paneEl('stage', n);
+  const blank = paneEl('empty', n);
+  if (!st.info) {
+    stage.classList.remove('on');
+    if (blank) blank.style.display = 'grid';
+    return;
+  }
+  if (blank) blank.style.display = 'none';
+  stage.classList.add('on');
+
+  if (!st.sizes) st.sizes = await run('page_sizes', p.tab);
+  st.page = Math.max(0, Math.min(st.page, (st.info.page_count || 1) - 1));
+  const size = st.sizes && st.sizes[st.page];
+  const view = paneEl('viewer', n);
+  if (size && st.zoomMode !== 'fixed' && view) {
+    const avail = Math.max(120, view.clientWidth - STAGE_PAD - SCROLLBAR);
+    st.zoom = Math.max(0.15, Math.min(6, avail / size.width));
+  }
+  const data = await run('render', st.page, st.zoom, p.tab);
+  if (!data) return;
+  const img = paneEl('pageimg', n);
+  img.src = data.image;
+  img.width = data.width;
+  img.height = data.height;
+  const wrap = paneEl('pagewrap', n);
+  wrap.style.width = data.width + 'px';
+  wrap.style.height = data.height + 'px';
+  const ov = paneEl('overlay', n);
+  if (ov) { ov.innerHTML = ''; ov.className = 'overlay'; }
+  st.scale = data.width / data.pdf_width;
+}
+
+// Everything that is not in front gets redrawn when the window changes shape.
+async function paintQuietPanes() {
+  for (let i = 0; i < PANES.length; i++) {
+    if (i !== focusedPane) await paintQuietPane(i);
+  }
+}
+
+/* ---------- dragging a tab ---------- */
+
+let tabDrag = null;
+
+function dropHint(side) {
+  let hint = $('drophint');
+  if (!hint) {
+    hint = el('div', 'drophint');
+    hint.id = 'drophint';
+    document.body.appendChild(hint);
+  }
+  const host = $('panes');
+  const box = host.getBoundingClientRect();
+  hint.style.display = side ? 'block' : 'none';
+  if (!side) return;
+  hint.style.top = box.top + 'px';
+  hint.style.height = box.height + 'px';
+  if (side === 'left') {
+    hint.style.left = box.left + 'px';
+    hint.style.width = (box.width / 2) + 'px';
+  } else if (side === 'right') {
+    hint.style.left = (box.left + box.width / 2) + 'px';
+    hint.style.width = (box.width / 2) + 'px';
+  } else {
+    const p = PANES[side.pane];
+    const pb = p.root.getBoundingClientRect();
+    hint.style.left = pb.left + 'px';
+    hint.style.width = pb.width + 'px';
+  }
+}
+
+// Where a tab would land if it were let go here. Dropping on a pane that is
+// already there moves the tab into it; dropping on the outer edge when there
+// is only one pane splits the window.
+function dropTargetAt(x, y) {
+  const host = $('panes');
+  const box = host.getBoundingClientRect();
+  if (y < box.top || y > box.bottom) return null;
+  const overPane = document.elementFromPoint(x, y);
+  const paneRootAt = overPane && overPane.closest ? overPane.closest('.vpane') : null;
+  if (isSplit()) {
+    if (!paneRootAt) return null;
+    return { pane: Number(paneRootAt.dataset.pane) };
+  }
+  // One pane only: the outer third on either side offers a split.
+  const third = box.width / 3;
+  if (x < box.left + third) return 'left';
+  if (x > box.right - third) return 'right';
+  return null;
+}
+
+function startTabDrag(ev, tabIndex) {
+  tabDrag = { tab: tabIndex, from: { x: ev.clientX, y: ev.clientY }, live: false };
+  const move = (e) => {
+    if (!tabDrag) return;
+    const far = Math.abs(e.clientX - tabDrag.from.x) + Math.abs(e.clientY - tabDrag.from.y);
+    if (!tabDrag.live && far < 8) return;      // a click is not a drag
+    tabDrag.live = true;
+    document.body.classList.add('dragging-tab');
+    tabDrag.target = dropTargetAt(e.clientX, e.clientY);
+    dropHint(tabDrag.target);
+  };
+  const up = async (e) => {
+    document.removeEventListener('pointermove', move);
+    document.removeEventListener('pointerup', up);
+    document.body.classList.remove('dragging-tab');
+    dropHint(null);
+    const drag = tabDrag;
+    tabDrag = null;
+    if (!drag || !drag.live) return;
+    const target = dropTargetAt(e.clientX, e.clientY);
+    if (!target) return;
+    await dropTab(drag.tab, target);
+  };
+  document.addEventListener('pointermove', move);
+  document.addEventListener('pointerup', up);
+}
+
+async function dropTab(tabIndex, target) {
+  if (target === 'left' || target === 'right') {
+    // Splitting. The dragged tab goes to the new side, everything else stays.
+    const n = addPane(target);
+    PANES.forEach((p) => { p.tabs = p.tabs.filter((t) => t !== tabIndex); });
+    PANES[n].tabs = [tabIndex];
+    PANES[n].tab = tabIndex;
+    // The pane that kept the rest needs something of its own to show.
+    const other = n === 0 ? 1 : 0;
+    if (PANES[other].tabs.indexOf(PANES[other].tab) < 0) {
+      PANES[other].tab = PANES[other].tabs[0];
+    }
+    await focusPane(n);
+    await showTabInPane(n, tabIndex);
+    await paintQuietPanes();
+    refreshTabs();
+    toast('Split. Drag tabs between the two sides.');
+    return;
+  }
+
+  const to = target.pane;
+  if (to === undefined || !PANES[to]) return;
+  const from = paneHolding(tabIndex);
+  if (from === to) {
+    // Dropped back where it came from: just show it there.
+    await showTabInPane(to, tabIndex);
+    return;
+  }
+  PANES[from].tabs = PANES[from].tabs.filter((t) => t !== tabIndex);
+  PANES[to].tabs.push(tabIndex);
+  PANES[to].tab = tabIndex;
+  if (!PANES[from].tabs.length) {
+    // The side it left is empty, so there is nothing to keep it open for.
+    await closeSplit(to);
+    await focusPane(0);
+    await showTabInPane(0, tabIndex);
+    toast('Back to one pane.');
+    return;
+  }
+  if (PANES[from].tab === tabIndex) PANES[from].tab = PANES[from].tabs[0];
+  await focusPane(to);
+  await showTabInPane(to, tabIndex);
+  await paintQuietPanes();
+  refreshTabs();
+}

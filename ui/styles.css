@@ -114,23 +114,27 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
 .pane { display: none; flex: 1; overflow-y: auto; padding: 8px; }
 .pane.active { display: block; }
 
-#viewer { flex: 1; position: relative; overflow: auto; background: #12151b; }
-#stage { display: none; padding: 22px; min-height: 100%; }
-#stage.on { display: grid; place-items: start center; }
+#panes { flex: 1; display: flex; min-width: 0; min-height: 0; }
+.vpane { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column;
+         position: relative; }
+.vpane + .vpane { border-left: 1px solid var(--line); }
+.viewer { flex: 1; position: relative; overflow: auto; background: #12151b; }
+.stage { display: none; padding: 22px; min-height: 100%; }
+.stage.on { display: grid; place-items: start center; }
 /* No line-height: 0 here. It was guarding against the few pixels of space an
-   inline image leaves beneath it, which #pageimg already avoids by being
+   inline image leaves beneath it, which .pageimg already avoids by being
    display: block - and because line-height inherits, every control drawn over
    the page got a zero-height line box. Buttons in the sticky-note bubble ended
    up shorter than their own text, so the red of Delete stopped above the
    bottom of the letters. */
-#pagewrap { position: relative; box-shadow: 0 10px 40px #000a; }
-#pageimg { display: block; max-width: none; }
-#overlay { position: absolute; inset: 0; }
-#scratch { position: absolute; inset: 0; pointer-events: none; }
+.pagewrap { position: relative; box-shadow: 0 10px 40px #000a; }
+.pageimg { display: block; max-width: none; }
+.overlay { position: absolute; inset: 0; }
+.scratch { position: absolute; inset: 0; pointer-events: none; }
 
-#empty { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 12px; text-align: center; }
-#empty h1 { font-size: 30px; font-weight: 600; color: var(--accent); }
-#empty p { color: var(--muted); }
+.empty { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 12px; text-align: center; }
+.empty h1 { font-size: 30px; font-weight: 600; color: var(--accent); }
+.empty p { color: var(--muted); }
 
 #inspector {
   width: 254px; flex: 0 0 254px; overflow-y: auto;
@@ -209,8 +213,8 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
 .hit.block { cursor: pointer; }
 .marquee { position: absolute; border: 1px dashed var(--accent); background: #4c8dff20; pointer-events: none; }
 .redactmark { position: absolute; background: #000; outline: 1px solid var(--danger); }
-#overlay.crosshair { cursor: crosshair; }
-#overlay.textmode .hit { outline: 1px dotted #4c8dff55; }
+.overlay.crosshair { cursor: crosshair; }
+.overlay.textmode .hit { outline: 1px dotted #4c8dff55; }
 
 .editor {
   position: absolute; z-index: 40;
@@ -507,3 +511,46 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
 /* Shown only between a click and the page being redrawn with the real
    appearance, so a tick never appears twice. */
 .fieldhit.pending { background: #4c8dff33; }
+
+/* A square that is only a drawing, with no form field behind it. Dashed, so
+   it is clearly something Platen found rather than something the document
+   actually provides. */
+.boxhit {
+  position: absolute;
+  cursor: pointer;
+  border-radius: 2px;
+  outline: 1px dashed #4c8dffcc;
+  outline-offset: 1px;
+  background: #4c8dff14;
+}
+.boxhit:hover { background: #4c8dff33; outline-style: solid; }
+.boxhit.ticked { background: #2bb67326; outline-color: #2bb673cc; }
+
+/* ---- two panes, and dragging tabs between them ---- */
+
+/* The pane in front is the one with the tools. Saying so quietly matters:
+   otherwise an edit appears to go to whichever document you last looked at. */
+.vpane.focused .pagewrap { outline: 2px solid var(--accent); outline-offset: 3px; }
+.vpane:not(.focused) .viewer { background: #0f1218; }
+
+.tabgroup { display: flex; min-width: 0; }
+.tabgroup + .tabgroup { border-left: 1px solid var(--line); margin-left: 2px;
+                        padding-left: 2px; }
+/* The tab showing in a pane that is not in front: still its document, just
+   not the one being edited. */
+.dtab.showing { background: var(--panel); color: var(--ink);
+                box-shadow: inset 0 -2px 0 var(--line); }
+
+body.dragging-tab { cursor: grabbing; }
+body.dragging-tab .dtab { pointer-events: none; }
+
+/* Where the tab would land. */
+#drophint {
+  position: fixed;
+  display: none;
+  pointer-events: none;
+  z-index: 90;
+  background: #4c8dff26;
+  border: 2px dashed var(--accent);
+  border-radius: 4px;
+}
