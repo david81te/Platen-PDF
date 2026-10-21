@@ -26,6 +26,7 @@ const S = {
   thumbBusy: false,
   fields: [],
   selectedField: null,
+  selectedXref: null,
   compare: null,     // last comparison result
   comparePage: -1,
   findQuery: '',
@@ -323,17 +324,20 @@ async function buildOverlay() {
     S.fields = (await run('form_list', S.page)) || [];
     if (stale()) return;
     S.fields.forEach((f) => {
-      const hit = el('div', 'fieldhit' + (f.name === S.selectedField ? ' on' : ''));
+      const hit = el('div', 'fieldhit' + (f.xref === S.selectedXref ? ' on' : ''));
       Object.assign(hit.style, {
         left: toPx(f.rect[0]) + 'px', top: toPx(f.rect[1]) + 'px',
         width: Math.max(12, toPx(f.rect[2] - f.rect[0])) + 'px',
         height: Math.max(12, toPx(f.rect[3] - f.rect[1])) + 'px',
       });
-      hit.title = f.name + ' (' + f.kind + ')' + (f.readonly ? ' - read only' : '');
-      if (f.kind === 'checkbox' && fieldIsTicked(f)) {
-        hit.innerHTML = '<span class="tick">&#10003;</span>';
-      }
-      hit.onclick = (e) => { e.stopPropagation(); editField(f); };
+      hit.title = fieldTitle(f);
+      hit.dataset.xref = f.xref;
+      // No tick is drawn here. Setting a box rewrites its appearance, so the
+      // page underneath already carries the real one, and a second tick on
+      // top of it is what made a ticked box look heavy and smudged. The only
+      // mark this overlay shows is the temporary one between a click and the
+      // page being redrawn.
+      hit.onclick = (e) => { e.stopPropagation(); editField(f, hit); };
       ov.appendChild(hit);
     });
   } else {
@@ -407,27 +411,145 @@ async function nudgeSelected(key, step) {
 /* ---- filling in a form ---- */
 
 function fieldIsTicked(field) {
+  // The backend works this out, because only it knows that a radio button is
+  // on when the group's value is this button's own option name. The rest is
+  // for anything still holding a listing from before that was reported.
+  if (typeof field.checked === 'boolean') return field.checked;
   const v = field.value;
   return v === true || (typeof v === 'string' && v !== '' && v.toLowerCase() !== 'off');
 }
 
-async function setField(field, value) {
-  const r = await run('form_set', S.page, field.name, value);
-  if (!r) return;
-  await refresh(false);
-  if (S.tool === 'field') drawInspector();
+function fieldTitle(f) {
+  const what = f.kind === 'radio' && f.on_state ? 'radio: ' + f.on_state : f.kind;
+  return (f.name || 'unnamed') + ' (' + what + ')' + (f.readonly ? ' - read only' : '');
 }
 
-function editField(field) {
+// A click should look as though it worked straight away. The page image still
+// shows the old state until it is redrawn, so this stands in for the moment
+// in between, and the redraw clears it.
+function markPending(hit, on) {
+  if (!hit) return;
+  hit.classList.toggle('pending', !!on);
+  hit.innerHTML = on ? '<span class="tick">&#10003;</span>' : '';
+}
+
+function hitFor(xref) {
+  return document.querySelector('.fieldhit[data-xref="' + xref + '"]');
+}
+
+async function setField(field, value) {
+  // By xref, never by name: a radio group's buttons all share one name, so
+  // by name every button in the group is the first button, and choosing the
+  // third option recorded the first.
+  const r = await run('form_set_widget', S.page, field.xref, value);
+  if (!r) return null;
+  await refresh(false);
+  if (S.tool === 'field') drawInspector();
+  return r;
+}
+
+async function toggleBox(field, hit) {
+  const want = !fieldIsTicked(field);
+  markPending(hit, want);
+  field.checked = want;
+  const r = await setField(field, want);
+  if (!r) { field.checked = !want; markPending(hit, !want); }
+}
+
+async function chooseRadio(field, hit) {
+  // A PDF radio group does not let go once something is chosen, the same as
+  // a paper form. Saying so beats a click that appears to do nothing.
+  if (fieldIsTicked(field)) {
+    toast('Already chosen. Pick another option to change it.');
+    return;
+  }
+  markPending(hit, true);
+  // Clear the rest of the group on screen at once, so one option looks
+  // chosen rather than two.
+  (S.fields || []).forEach((other) => {
+    if (other.name === field.name && other.xref !== field.xref) {
+      other.checked = false;
+      markPending(hitFor(other.xref), false);
+    }
+  });
+  field.checked = true;
+  const r = await setField(field, true);
+  if (!r) { field.checked = false; markPending(hit, false); }
+}
+
+// Typing happens on the page, in a box the size of the field, rather than in
+// a dialog sitting over the document being filled in.
+function openFieldEditor(field, hit) {
+  cancelEdit();
+  const rect = field.rect;
+  const h = Math.max(16, toPx(rect[3] - rect[1]));
+  const w = Math.max(40, toPx(rect[2] - rect[0]));
+  const box = el('input', 'fieldedit');
+  box.type = 'text';
+  box.value = typeof field.value === 'string' ? field.value : '';
+  box.spellcheck = false;
+  if (field.required) box.placeholder = 'required';
+  Object.assign(box.style, {
+    left: toPx(rect[0]) + 'px',
+    top: toPx(rect[1]) + 'px',
+    width: w + 'px',
+    height: h + 'px',
+    // A form field is drawn to fit its text, so its height is the best guide
+    // to the size of the text that will end up in it.
+    fontSize: Math.max(9, Math.min(28, h * 0.62)) + 'px',
+  });
+  $('overlay').appendChild(box);
+  S.editing = { box };
+  box.focus();
+  box.setSelectionRange(box.value.length, box.value.length);
+
+  let done = false;
+  const finish = async (move) => {
+    if (done) return;
+    done = true;
+    const text = box.value;
+    const changed = text !== (field.value || '');
+    cancelEdit();
+    if (changed) {
+      field.value = text;
+      await setField(field, text);
+    }
+    if (move) stepField(field, move);
+  };
+
+  box.onblur = () => finish(0);
+  box.onkeydown = (e) => {
+    e.stopPropagation();
+    if (e.key === 'Escape') { done = true; cancelEdit(); }
+    else if (e.key === 'Enter') { e.preventDefault(); finish(0); }
+    else if (e.key === 'Tab') { e.preventDefault(); finish(e.shiftKey ? -1 : 1); }
+  };
+}
+
+// Tab moves to the next field that can be filled in, in the order they sit on
+// the page, so a form can be worked through without reaching for the mouse.
+function stepField(from, direction) {
+  const usable = (S.fields || []).filter(
+    (f) => !f.readonly && f.kind !== 'signature' && f.kind !== 'button');
+  if (!usable.length) return;
+  const at = usable.findIndex((f) => f.xref === from.xref);
+  const next = usable[(at + direction + usable.length) % usable.length];
+  if (!next || next.xref === from.xref) return;
+  // After the commit above has redrawn the page, so the box lands on the new
+  // overlay rather than one that is about to be thrown away.
+  setTimeout(() => editField(next, hitFor(next.xref)), 60);
+}
+
+function editField(field, hit) {
   S.selectedField = field.name;
+  S.selectedXref = field.xref;
+  if (!hit) hit = hitFor(field.xref);
   if (field.readonly) {
     toast('That field is read only.', 'err');
     return;
   }
-  if (field.kind === 'checkbox') {
-    setField(field, !fieldIsTicked(field));      // a tick needs no dialog
-    return;
-  }
+  if (field.kind === 'checkbox') return toggleBox(field, hit);
+  if (field.kind === 'radio') return chooseRadio(field, hit);
   if (field.kind === 'dropdown' || field.kind === 'listbox') {
     modal('Choose a value',
       '<div class="field"><label>' + escapeHtml(field.name) + '</label>' +
@@ -437,11 +559,7 @@ function editField(field) {
       async (v) => setField(field, v.v), 'Set');
     return;
   }
-  modal('Fill in the field',
-    '<div class="field"><label>' + escapeHtml(field.name) + '</label>' +
-    '<input name="v" value="' + escapeHtml(field.value || '') + '"></div>' +
-    (field.required ? '<p class="hint">This field is marked as required.</p>' : ''),
-    async (v) => setField(field, v.v), 'Set');
+  return openFieldEditor(field, hit);
 }
 
 function formInspector() {
@@ -457,6 +575,14 @@ function formInspector() {
       control = '<label class="chk"><input type="checkbox" id="' + id + '"' +
         (fieldIsTicked(f) ? ' checked' : '') + (f.readonly ? ' disabled' : '') +
         '> ticked</label>';
+    } else if (f.kind === 'radio') {
+      // A real radio, grouped by field name, so the panel behaves the way the
+      // page does. It used to get a text box, which could only ever put the
+      // wrong thing in a form.
+      control = '<label class="chk"><input type="radio" id="' + id +
+        '" name="grp_' + escapeHtml(f.name) + '"' +
+        (fieldIsTicked(f) ? ' checked' : '') + (f.readonly ? ' disabled' : '') +
+        '> ' + escapeHtml(f.on_state || 'this option') + '</label>';
     } else if (f.kind === 'dropdown' || f.kind === 'listbox') {
       control = '<select id="' + id + '"' + (f.readonly ? ' disabled' : '') + '>' +
         (f.options || []).map((o) => '<option' + (o === f.value ? ' selected' : '') +
@@ -465,7 +591,7 @@ function formInspector() {
       control = '<input id="' + id + '" value="' + escapeHtml(f.value || '') + '"' +
         (f.readonly ? ' disabled' : '') + '>';
     }
-    html += '<div class="frow' + (f.name === S.selectedField ? ' on' : '') + '">' +
+    html += '<div class="frow' + (f.xref === S.selectedXref ? ' on' : '') + '">' +
       '<div class="n"><span>' + escapeHtml(f.name) + '</span><em>' + f.kind +
       (f.required ? ' &middot; required' : '') + '</em></div>' + control + '</div>';
   });
@@ -480,7 +606,8 @@ function wireFormInspector() {
   (S.fields || []).forEach((f, i) => {
     const input = $('ff' + i);
     if (!input || f.readonly) return;
-    input.onchange = () => setField(f, f.kind === 'checkbox' ? input.checked : input.value);
+    input.onchange = () => setField(
+      f, (f.kind === 'checkbox' || f.kind === 'radio') ? input.checked : input.value);
   });
   const ex = $('form-export');
   if (ex) ex.onclick = async () => {

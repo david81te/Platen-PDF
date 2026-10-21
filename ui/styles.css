@@ -484,3 +484,26 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
 }
 #typed-preview img { max-width: 100%; max-height: 86px; }
 #typed-preview .waiting { color: #9aa0ad; font-size: 12px; }
+
+/* ---- filling a form on the page ---- */
+
+/* Typing happens here rather than in a dialog, so the box has to sit exactly
+   where the field is and look like part of the page, not like a control
+   floating over it. */
+.fieldedit {
+  position: absolute;
+  margin: 0;
+  padding: 0 3px;
+  border: 2px solid var(--accent);
+  border-radius: 2px;
+  background: #fff;
+  color: #111;
+  font-family: inherit;
+  box-shadow: 0 2px 10px #0000002e;
+  z-index: 40;
+}
+.fieldedit:focus { outline: none; }
+
+/* Shown only between a click and the page being redrawn with the real
+   appearance, so a tick never appears twice. */
+.fieldhit.pending { background: #4c8dff33; }

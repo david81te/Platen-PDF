@@ -79,24 +79,31 @@ def drive(window):
 
     js("setTool('select')")
     time.sleep(1.5)
-    check("a ticked box shows a tick on the page",
-          js("document.querySelectorAll('.fieldhit .tick').length"), 1)
+    # The page itself draws the tick, because setting a box rewrites its
+    # appearance. The overlay used to draw a second one on top, which is why
+    # a ticked box looked heavy; it must not do that any more.
+    check("the page is left to draw its own tick",
+          js("document.querySelectorAll('.fieldhit .tick').length"), 0)
+    check("but the backend knows the box is ticked",
+          js("(S.fields.find(f=>f.name==='agreed')||{}).checked"), True)
 
     js("document.querySelectorAll('.fieldhit')[0].click()")
     time.sleep(1.2)
-    check("clicking a text field opens an editor",
-          js("!!document.querySelector('#modal input[name=v]')"), True)
+    check("clicking a text field types on the page",
+          js("!!document.querySelector('.fieldedit')"), True)
+    check("rather than opening a dialog over the document",
+          js("document.getElementById('modal-back').classList.contains('on')"), False)
     check("pre-filled with the current value",
-          js("(document.querySelector('#modal input[name=v]')||{}).value"),
+          js("(document.querySelector('.fieldedit')||{}).value"),
           "Ernie Willmore")
-    js("document.querySelector('#modal [data-x]').click()")
+    js("if (S.editing) cancelEdit();")
     time.sleep(0.6)
 
     js("document.querySelectorAll('.fieldhit')[1].click()")
     time.sleep(2.5)
     check("clicking a checkbox toggles it with no dialog",
           js("(function(){const f=S.fields.find(f=>f.name==='agreed');"
-             "return !(f && f.value && String(f.value).toLowerCase()!=='off');})()"), True)
+             "return !(f && f.checked);})()"), True)
     window.destroy()
 
 

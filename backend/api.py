@@ -854,6 +854,15 @@ class Api:
         return self._mutate(forms.set_value, int(index), name, value)
 
     @endpoint
+    def form_set_widget(self, index, xref, value):
+        """Set one widget by the object it is, rather than by its name.
+
+        What the window uses, because a click lands on a particular button
+        and a radio group's buttons all carry the same name.
+        """
+        return self._mutate(forms.set_widget, int(index), int(xref), value)
+
+    @endpoint
     def form_set_many(self, values):
         return self._mutate(forms.set_many, values or [])
 
