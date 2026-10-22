@@ -45,8 +45,10 @@ def build(path, word, pages):
     doc.close()
 
 
+THIRD = os.path.join(sandbox.DIR, "third.pdf")
 build(LEFT, "LEFT", 3)
 build(RIGHT, "RIGHT", 5)
+build(THIRD, "THIRD", 2)
 
 print("== the backend can hand out two documents at once ==")
 api = Api()
@@ -72,6 +74,9 @@ def drive(window):
             break
         time.sleep(0.25)
 
+    # Closing a document that has been changed asks first, and there is
+    # nobody here to answer, so the question is answered in advance.
+    js("window.confirm = () => true;")
     js("window.openOnStart(%r)" % LEFT.replace("\\", "/"))
     for _ in range(60):
         if js("S.info && S.info.page_count"):
@@ -164,6 +169,67 @@ def drive(window):
           js("document.querySelectorAll('.vpane.focused').length"), 1)
     check("and it is still usable",
           js("!!(S.info && S.info.page_count)"), True)
+
+    print("")
+    print("== closing a document closes the side it was on ==")
+    # Reported from use: two documents open, one of them closed, and both
+    # halves of the window stayed there with no way back to one.
+    js("dropTab(0, 'right')")
+    time.sleep(3.5)
+    check("split again to set it up",
+          js("document.querySelectorAll('.vpane').length"), 2)
+    shown = js("PANES[1].tab")
+    js("closeTab(%s)" % shown)
+    time.sleep(4.5)
+    check("the empty side went away",
+          js("document.querySelectorAll('.vpane').length"), 1)
+    check("and one tab group with it",
+          js("document.querySelectorAll('.tabgroup').length"), 1)
+    check("the document that is left is on screen",
+          js("!!(S.info && S.info.page_count)"), True)
+    check("and the pane that remains is in front",
+          js("document.querySelectorAll('.vpane.focused').length"), 1)
+
+    print("")
+    print("== the panes keep up when tabs are renumbered ==")
+    # Closing a tab shifts every tab after it down by one. A pane that
+    # recorded tab 1 would afterwards be pointing at a different document
+    # and would show the wrong file with nothing looking wrong.
+    js("window.openOnStart(%r)" % THIRD.replace("\\", "/"))
+    time.sleep(3.0)
+    check("two documents open again",
+          js("PANES.reduce((n, p) => n + p.tabs.length, 0)"), 2)
+    js("dropTab(PANES[0].tabs[1], 'right')")
+    time.sleep(3.5)
+    check("split once more",
+          js("document.querySelectorAll('.vpane').length"), 2)
+    other = js("PANES[1].state.info.name")
+    js("closeTab(PANES[0].tabs[0])")
+    time.sleep(4.5)
+    check("the surviving document is the one that was in the other side",
+          js("(S.info || {}).name"), other)
+    js("window.__ok = null;"
+       "(async () => { const t = (await run('tab_list')).tabs.map(x => x.index);"
+       " window.__ok = PANES.every(p => p.tabs.every(i => t.indexOf(i) >= 0)); })()")
+    time.sleep(1.5)
+    check("every tab a pane records still exists", js("window.__ok"), True)
+
+    print("")
+    print("== and it can be put back to one pane on purpose ==")
+    js("window.openOnStart(%r)" % RIGHT.replace("\\", "/"))
+    time.sleep(3.0)
+    js("dropTab(PANES[0].tabs[1], 'right')")
+    time.sleep(3.5)
+    check("two panes to start from",
+          js("document.querySelectorAll('.vpane').length"), 2)
+    check("there is a control for it",
+          js("!!document.querySelector('.tabmerge')"), True)
+    js("document.querySelector('.tabmerge').click()")
+    time.sleep(3.5)
+    check("one pane again",
+          js("document.querySelectorAll('.vpane').length"), 1)
+    check("with both documents still open", js("PANES[0].tabs.length"), 2)
+    check("and still working", js("!!(S.info && S.info.page_count)"), True)
 
     print("")
     print("== the drop target is worked out from where the pointer is ==")

@@ -554,3 +554,17 @@ body.dragging-tab .dtab { pointer-events: none; }
   border: 2px dashed var(--accent);
   border-radius: 4px;
 }
+
+/* Put the window back to one pane without having to empty a side first. */
+.tabmerge {
+  flex: 0 0 auto;
+  align-self: center;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--muted);
+  background: var(--panel-2);
+  line-height: 20px;
+}
+.tabmerge:hover { color: var(--ink); background: var(--panel); }

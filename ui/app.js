@@ -1302,6 +1302,19 @@ async function refreshTabs() {
     });
     host.appendChild(group);
   });
+
+  // Splitting happens by dragging, so unsplitting has to be possible without
+  // having to empty a side first.
+  if (isSplit()) {
+    const merge = el('div', 'tabmerge', '\u2194');
+    merge.title = 'Back to one pane';
+    merge.onclick = async () => {
+      await closeSplit(focusedPane);
+      await refresh(false);
+      refreshTabs();
+    };
+    host.appendChild(merge);
+  }
 }
 
 function resetPerDocumentState() {
@@ -1339,9 +1352,45 @@ async function closeTab(index) {
       !confirm('"' + tab.name + '" has unsaved changes. Close it anyway?')) return;
   const res = await run('tab_close', index);
   if (!res) return;
+  forgetTab(index);
+  await settlePanes();
   resetPerDocumentState();
   setInfo(res.info && res.info.open ? res.info : { open: false });
   await refresh();
+  if (isSplit()) await paintQuietPanes();
+}
+
+// Closing a tab renumbers every tab after it, because the backend keeps its
+// documents in a list and takes one out of the middle. The panes record tabs
+// by number, so their records have to move with it - otherwise a pane carries
+// on pointing at a number that now belongs to a different document, and shows
+// the wrong file without anything looking wrong.
+function forgetTab(closed) {
+  PANES.forEach((p) => {
+    p.tabs = p.tabs
+      .filter((t) => t !== closed)
+      .map((t) => (t > closed ? t - 1 : t));
+    if (p.tab === closed) p.tab = p.tabs.length ? p.tabs[0] : null;
+    else if (p.tab > closed) p.tab -= 1;
+  });
+}
+
+// After anything that closes a document: a side with nothing left in it is
+// not a view, it is a dead half of the window, so the split goes away. One
+// document between them does not need two sides either.
+async function settlePanes() {
+  if (!isSplit()) return;
+  const empty = PANES.findIndex((p) => !p.tabs.length);
+  if (empty >= 0) {
+    await closeSplit(empty === 0 ? 1 : 0);
+    toast('Back to one pane.');
+    return;
+  }
+  const total = PANES.reduce((n, p) => n + p.tabs.length, 0);
+  if (total <= 1) {
+    await closeSplit(focusedPane);
+    toast('Back to one pane.');
+  }
 }
 
 /* ---------- sidebar panes ---------- */
@@ -2768,6 +2817,12 @@ async function focusPane(n) {
   SHARED_KEYS.forEach((k) => { next.state[k] = S[k]; });
   S = next.state;
   PANES.forEach((p, i) => p.root.classList.toggle('focused', i === focusedPane));
+  // A pane that has just been emptied has no document to switch to, and the
+  // backend quite rightly refuses to be told to switch to nothing.
+  if (next.tab === null || next.tab === undefined) {
+    refreshTabs();
+    return;
+  }
   if (await run('tab_switch', next.tab)) {
     await refresh(false);
     drawInspector();
@@ -2836,6 +2891,11 @@ async function closeSplit(keep) {
   PANES.push(keeping);
   keeping.root.classList.add('focused');
   renumberPanes();
+  if (keeping.tabs.indexOf(keeping.tab) < 0) keeping.tab = keeping.tabs[0];
+  if (keeping.tab === undefined || keeping.tab === null) {
+    refreshTabs();
+    return;
+  }
   await showTabInPane(0, keeping.tab);
   refreshTabs();
 }
@@ -2843,7 +2903,7 @@ async function closeSplit(keep) {
 // Put a document into a pane and draw it there.
 async function showTabInPane(n, tabIndex) {
   const p = PANES[n];
-  if (!p) return;
+  if (!p || tabIndex === null || tabIndex === undefined) return;
   p.tab = tabIndex;
   if (p.tabs.indexOf(tabIndex) < 0) p.tabs.push(tabIndex);
   if (n === focusedPane) {
@@ -2863,6 +2923,14 @@ async function showTabInPane(n, tabIndex) {
 async function paintQuietPane(n) {
   const p = PANES[n];
   const st = p.state;
+  if (p.tab === null || p.tab === undefined) {
+    st.info = null;
+    const stage = paneEl('stage', n);
+    if (stage) stage.classList.remove('on');
+    const blank = paneEl('empty', n);
+    if (blank) blank.style.display = 'grid';
+    return;
+  }
   const info = await run('doc_info', p.tab);
   st.info = info && info.open === false ? null : info;
   const stage = paneEl('stage', n);
