@@ -31,7 +31,16 @@ def drive(window):
     js("window.openOnStart(%r)" % os.path.join(OUT, "fixture.pdf").replace("\\", "/"))
     time.sleep(3.5)
 
-    check("fit width is the default", js("S.zoomMode"), "width")
+    check("fit page is the default", js("S.zoomMode"), "page")
+
+    def whole_page():
+        """The page fits the viewer both ways, and touches it on one side --
+        fitted, not merely small. The stage pads 22px each side."""
+        return js("(function(){"
+                  "const v=document.getElementById('viewer');"
+                  "const i=document.getElementById('pageimg');"
+                  "const w=v.clientWidth-44-i.width, h=v.clientHeight-44-i.height;"
+                  "return w >= -2 && h >= -2 && Math.min(w, h) <= 20;})()")
 
     def shortfall():
         """Unused width beside the page, in px. The stage pads 22px each side."""
@@ -40,8 +49,23 @@ def drive(window):
                   "const i=document.getElementById('pageimg');"
                   "return v.clientWidth - 44 - i.width;})()")
 
+    check("whole page visible at first size", whole_page(), True)
+    first_zoom = js("S.zoom")
+
+    # The complaint this guards: maximising used to blow the page up to the
+    # full width of the screen, with most of it below the fold.
+    window.maximize()
+    time.sleep(2.0)
+    check("whole page visible when maximised", whole_page(), True)
+    check("and it grew to use the room", js("S.zoom"), lambda z: z > first_zoom + 0.05)
+    window.restore()
+    time.sleep(2.0)
+    check("whole page visible after restoring", whole_page(), True)
+
+    js("setZoom('width')")
+    time.sleep(1.5)
     small_zoom = js("S.zoom")
-    check("page fills the window at first size", shortfall(),
+    check("fit width fills the window", shortfall(),
           lambda px: px is not None and -2 <= px <= 20)
 
     window.resize(1500, 950)

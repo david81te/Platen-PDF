@@ -4,7 +4,7 @@ let S = {
   info: null,
   page: 0,
   zoom: 1.25,
-  zoomMode: 'width',   // width | page | fixed
+  zoomMode: 'page',    // width | page | fixed
   sizes: null,        // page dimensions, cached per document
   tool: 'select',
   layout: null,
@@ -55,7 +55,7 @@ function paneEl(name, n) { return pane(n).root.querySelector('.' + name); }
 // where you left it rather than back at the top.
 function freshPaneState() {
   return {
-    info: null, page: 0, zoom: 1.25, zoomMode: 'width', sizes: null,
+    info: null, page: 0, zoom: 1.25, zoomMode: 'page', sizes: null,
     layout: null, scale: 1, hits: [], hitIndex: -1, annots: [],
     selectedAnnot: null, thumbLoaded: 0, thumbBusy: false,
     fields: [], selectedField: null, selectedXref: null, boxes: [],
@@ -226,7 +226,19 @@ async function refresh(full = true) {
 // The stage pads the page and the viewer may show a scrollbar; leave room for
 // both or a fit-to-width page triggers the very scrollbar it has to fit inside.
 const STAGE_PAD = 44;
-const SCROLLBAR = 18;
+
+// Measured, not assumed: the viewer has the stock scrollbar, whose width
+// varies with the WebView and the display scale. A guess that is a few px
+// out leaves fit width a few px short, but only when it comes from a view
+// with no scrollbar yet -- from fit page, say, which is the default.
+function scrollbarWidth() {
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:absolute;top:-999px;width:100px;height:100px;overflow:scroll';
+  document.body.appendChild(probe);
+  const w = probe.offsetWidth - probe.clientWidth;
+  probe.remove();
+  return w;
+}
 
 let quietTimer = null;
 function queueQuietRepaint() {
@@ -240,7 +252,13 @@ function applyZoomMode() {
   if (S.zoomMode === 'fixed' || !S.info || !S.sizes) return;
   const size = S.sizes[S.page];
   if (!size) return;
-  const view = paneEl('viewer');
+  S.zoom = fitZoom(size, paneEl('viewer'), S.zoomMode);
+}
+
+// The zoom at which a page of this size fits this viewer, by width or whole.
+// Fit page is the default: a maximised window is wide and short, and fitting
+// the width there leaves most of the page below the fold.
+function fitZoom(size, view, mode) {
   const availH = Math.max(120, view.clientHeight - STAGE_PAD);
   let availW = Math.max(120, view.clientWidth - STAGE_PAD);
 
@@ -249,14 +267,14 @@ function applyZoomMode() {
   // otherwise the allowance is counted twice and the page sits short.
   const hasScrollbar = view.scrollHeight > view.clientHeight + 1;
   if (!hasScrollbar && size.height * (availW / size.width) > availH) {
-    availW = Math.max(120, availW - SCROLLBAR);
+    availW = Math.max(120, availW - scrollbarWidth());
   }
 
   const byWidth = availW / size.width;
-  const zoom = S.zoomMode === 'page'
+  const zoom = mode === 'page'
     ? Math.min(byWidth, availH / size.height)
     : byWidth;
-  S.zoom = Math.max(0.1, Math.min(6, zoom));
+  return Math.max(0.1, Math.min(6, zoom));
 }
 
 async function drawPage() {
@@ -2694,6 +2712,8 @@ renderAccount();
 // Re-fit when the window changes size, which is what maximising does.
 let resizeTimer = null;
 window.addEventListener('resize', () => {
+  // The pane that is not in front has changed size too.
+  queueQuietRepaint();
   if (!S.info || S.zoomMode === 'fixed') return;
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => drawPage(), 110);
@@ -2948,8 +2968,7 @@ async function paintQuietPane(n) {
   const size = st.sizes && st.sizes[st.page];
   const view = paneEl('viewer', n);
   if (size && st.zoomMode !== 'fixed' && view) {
-    const avail = Math.max(120, view.clientWidth - STAGE_PAD - SCROLLBAR);
-    st.zoom = Math.max(0.15, Math.min(6, avail / size.width));
+    st.zoom = fitZoom(size, view, st.zoomMode);
   }
   const data = await run('render', st.page, st.zoom, p.tab);
   if (!data) return;
