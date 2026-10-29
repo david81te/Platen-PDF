@@ -52,3 +52,18 @@ enc = fitz.open(os.path.join(OUT, "hard.pdf"))
 enc.save(os.path.join(OUT, "locked.pdf"), encryption=fitz.PDF_ENCRYPT_AES_256,
          user_pw="secret", owner_pw="owner")
 print("locked.pdf written")
+
+# A document of real length for test_speed: 160 pages of text, with the word
+# it searches for a few times on every page.
+big = fitz.open()
+for n in range(160):
+    p = big.new_page(width=612, height=792)
+    p.insert_text((72, 72), "Section %d" % (n + 1), fontsize=16)
+    for line in range(30):
+        p.insert_text((72, 110 + line * 20),
+                      "Clause %d.%d of this agreement binds the parties to the "
+                      "agreement as amended." % (n + 1, line + 1) if line % 10 == 0 else
+                      "The parties shall perform their obligations in good faith "
+                      "and without undue delay.", fontsize=11)
+big.save(os.path.join(OUT, "big160.pdf"), garbage=4, deflate=True)
+print("big160.pdf pages:", big.page_count)

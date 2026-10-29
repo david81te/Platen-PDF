@@ -70,7 +70,12 @@ document.
 ## Tests
 
 Run them all before a release: `.venv\Scripts\python.exe tests\test_x.py`, one
-at a time. Several "flakes" in this project turned out to be real bugs — a
+at a time. On a fresh machine run `tests\make_fixture.py` (needs Word) and
+`tests\make_hard.py` first — `tests/output/` is not in git, and most suites
+open the PDFs those two write.
+
+PyMuPDF is held below 2.0 in `requirements.txt`. 2.0 garbles table text
+(`$100,000` comes out as `$100000\n,`), which `test_convert` catches. Several "flakes" in this project turned out to be real bugs — a
 missing lock, a same-second timestamp comparison, a stale-state race. Treat an
 intermittent failure as a bug until proven otherwise.
 

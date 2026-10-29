@@ -41,3 +41,18 @@ try:
 finally:
     word.Quit()
 print("wrote", pdf_path, os.path.getsize(pdf_path), "bytes")
+
+# The same memo with the price changed, for the comparison suites to diff
+# against the original. Edited the way a user would, so the rest of the page
+# stays byte-for-byte what Word wrote.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import pymupdf as fitz
+from backend import textedit
+
+revised_path = os.path.join(OUT, "revised.pdf")
+rev = fitz.open(pdf_path)
+span = next(s for b in textedit.layout(rev[0])["blocks"]
+            for ln in b["lines"] for s in ln["spans"] if "$4,250,000" in s["text"])
+textedit.edit_span(rev, span["id"], span["text"].replace("$4,250,000", "$9,875,400"))
+rev.save(revised_path, garbage=4, deflate=True)
+print("wrote", revised_path, os.path.getsize(revised_path), "bytes")
