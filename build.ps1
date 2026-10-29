@@ -11,18 +11,27 @@ param([switch]$Portable)
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
+# The repo sits in OneDrive, which turns a folder it has synced into a cloud
+# placeholder, and PyInstaller cannot delete one: the second build on a
+# machine failed with "Access is denied", first on build\...\localpycs and
+# then on dist\PlatenPDF. Remove-Item can, so the previous output is cleared
+# here, and PyInstaller's scratch folder lives outside the repo altogether.
+$work = Join-Path $env:LOCALAPPDATA "PlatenPDF-build"
+$old = if ($Portable) { "dist\PlatenPDF.exe" } else { "dist\PlatenPDF" }
+if (Test-Path $old) { Remove-Item -LiteralPath $old -Recurse -Force }
+
 if ($Portable) {
     Write-Host "Building the single-file build..." -ForegroundColor Cyan
-    & ".venv\Scripts\pyinstaller.exe" --noconfirm --clean PlatenPDF.spec
+    & ".venv\Scripts\pyinstaller.exe" --noconfirm --clean --workpath $work PlatenPDF.spec
     $out = "dist\PlatenPDF.exe"
 } else {
     Write-Host "Building the folder build..." -ForegroundColor Cyan
-    & ".venv\Scripts\pyinstaller.exe" --noconfirm --clean PlatenPDF-folder.spec
+    & ".venv\Scripts\pyinstaller.exe" --noconfirm --clean --workpath $work PlatenPDF-folder.spec
     $out = "dist\PlatenPDF\PlatenPDF.exe"
 }
 
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "PyInstaller failed (exit $LASTEXITCODE). The previous build in dist\ is now STALE." -ForegroundColor Red
+    Write-Host "PyInstaller failed (exit $LASTEXITCODE). The previous build was cleared first, so there is none in dist\." -ForegroundColor Red
     exit 1
 }
 
