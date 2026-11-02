@@ -1065,7 +1065,10 @@ function openEditor(rect, value, multiline, onSave, sizePt) {
 function editSpan(sp) {
   openEditor(sp.bbox, sp.text, false, async (text) => {
     const res = await busyRun('Rewriting text…', 'edit_span', sp.id, text);
-    if (res && res.shrunk) toast('Text was narrowed slightly to fit the line.');
+    // A line edit never spills onto another row, so long wording is shrunk.
+    if (res && res.shrunk) toast(res.scale < 0.9
+      ? `Text was shrunk to ${Math.round(res.scale * 100)}% to fit its line. Edit the paragraph (¶) to let it wrap.`
+      : 'Text was narrowed slightly to fit the line.');
     await refresh(false);
   }, sp.size);
 }

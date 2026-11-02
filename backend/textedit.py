@@ -3,9 +3,9 @@
 A PDF stores positioned glyph draws, not editable paragraphs, so "editing text"
 means removing the original glyphs and re-typesetting replacements. Two units:
 
-  span  - rewrite one run of same-styled text. The whole *line* is redacted and
-          redrawn span-by-span so neighbouring runs reflow instead of being
-          clipped by an overlapping redaction box.
+  span  - rewrite one run of same-styled text. The runs touching it on its line
+          are redrawn with it so they move along instead of being overprinted;
+          nothing on any other row is touched.
   block - rewrite a paragraph, re-wrapping across lines inside its bounding box.
 
 Tuned for PDFs exported from Word, which produce clean, well-separated text runs.
@@ -187,100 +187,138 @@ def _horizontal(line: dict) -> bool:
 
 def edit_span(doc: fitz.Document, span_id: str, new_text: str,
               binder: FontBinder | None = None) -> dict:
-    """Replace one text run, reflowing the rest of its line."""
+    """Replace one text run without touching any other row of the page.
+
+    The run is redrawn together with the runs touching it on its line, so a
+    longer word pushes the rest of its sentence along. Text further along the
+    line -- a table cell, a tab stop -- stays where it is. Wording wider than
+    the row has room for is drawn smaller until it fits. It used to wrap, which
+    laid the tail over the row beneath, and re-wrapping the paragraph instead
+    merged separate rows into one.
+    """
     parts = parse_id(span_id)
     if len(parts) != 4:
         raise ValueError("That text reference is not valid.")
     page_no, b_index, l_index, s_index = parts
     page = _page(doc, page_no)
-    block, line = _locate(page, b_index, l_index)
-    spans = [s for s in line["spans"] if s.get("text")]
+    _, line = _locate(page, b_index, l_index)
     if s_index >= len(line["spans"]):
         raise ValueError("Text run no longer exists on this page.")
     if not _horizontal(line):
         raise ValueError("Rotated or vertical text can't be edited in place yet.")
 
     target = line["spans"][s_index]
-    rebuilt = []
-    for span in spans:
-        text = new_text if span is target else span["text"]
-        rebuilt.append({
-            "text": text,
-            "font": span.get("font", ""),
-            "size": span.get("size", 11.0),
-            "color": span.get("color", 0),
-        })
+    spans = [s for s in line["spans"] if s.get("text") or s is target]
+    group, next_x = _touching_runs(spans, target)
+    new_text = re.sub(r"[\r\n\t]+", " ", new_text)   # one row holds one line
+    runs = [{
+        "text": new_text if span is target else span["text"],
+        "font": span.get("font", ""),
+        "size": span.get("size", 11.0),
+        "color": span.get("color", 0),
+        "baseline": span.get("origin", (0, span["bbox"][3]))[1],
+    } for span in group]
 
-    binder = binder or FontBinder(doc)
-    baseline_y = target.get("origin", (0, line["bbox"][3]))[1]
-    start_x = line["bbox"][0]
+    start_x = group[0]["bbox"][0]
+    original_end = max(span["bbox"][2] for span in group)
+    room = _room_right(page, group, next_x, b_index, l_index)
+    available = max(original_end, room) - start_x
 
-    # How much room this line actually has.
-    right_edge = max(block["bbox"][2], line["bbox"][2])
-    if right_edge - start_x < 40:
-        right_edge = page.rect.x1 - 36
-    available = max(40.0, right_edge - start_x)
-    spacing = _line_spacing(block, _dominant_style(block)["size"])
+    _redact_spans(page, group)
+    page = doc[page_no]
+    return _draw_runs(page, runs, start_x, binder or FontBinder(doc), available)
 
-    # If the new wording no longer fits the line, re-wrap the whole paragraph.
-    # Wrapping just this line would lay it over the lines beneath it, and
-    # drawing it anyway would push the tail off the page, where it is invisible
-    # and lost from the extracted text too.
-    probe = FontBinder(doc)
-    needed = 0.0
-    for run in rebuilt:
-        if not run["text"]:
+
+def _touching_runs(spans: list[dict], target: dict) -> tuple[list[dict], float | None]:
+    """The runs that flow together with `target`, and where the next piece starts.
+
+    A gap wider than a space or two between runs on one line marks a separate
+    piece: a table cell, a tab stop, a second column. Those keep their place.
+    """
+    groups = [[spans[0]]]
+    for prev, span in zip(spans, spans[1:]):
+        gap = span["bbox"][0] - prev["bbox"][2]
+        if gap > 0.6 * max(prev.get("size", 11.0), span.get("size", 11.0)):
+            groups.append([])
+        groups[-1].append(span)
+    for index, group in enumerate(groups):
+        if any(span is target for span in group):
+            following = groups[index + 1][0]["bbox"][0] if index + 1 < len(groups) else None
+            return group, following
+    return [target], None
+
+
+def _room_right(page: fitz.Page, group: list[dict], next_x: float | None,
+                b_index: int, l_index: int) -> float:
+    """How far right the edited runs may reach before meeting anything on their row.
+
+    Must be called before the redaction, while the neighbours are still there.
+    """
+    size = max(span.get("size", 11.0) for span in group)
+    baseline = group[0].get("origin", (0, group[0]["bbox"][3]))[1]
+    x0 = group[0]["bbox"][0]
+    end = max(span["bbox"][2] for span in group)
+    row_top, row_bottom = baseline - 0.7 * size, baseline - 0.1 * size
+
+    def on_row(box: fitz.Rect) -> bool:
+        return box.y0 < row_bottom and box.y1 > row_top
+
+    raw = page.get_text("dict").get("blocks", [])
+    # Margins are taken as even: the right one mirrors the leftmost text.
+    lefts = [block["bbox"][0] for block in raw if block.get("type") == 0]
+    margin = max(18.0, (min(lefts) if lefts else 72.0) - page.rect.x0)
+    limit = page.rect.x1 - margin
+    if next_x is not None:
+        limit = min(limit, next_x - 0.3 * size)
+
+    for bi, block in enumerate(raw):
+        if block.get("type") != 0:
             continue
-        _, font = probe.bind(page, run["font"], run["text"])
-        needed += font.text_length(run["text"], fontsize=run["size"])
-    if needed > available * 1.02 and len(block.get("lines", [])) >= 1:
-        return _reflow_block(doc, page_no, b_index, l_index, s_index, new_text)
+        for li, other in enumerate(block.get("lines", [])):
+            box = fitz.Rect(other["bbox"])
+            if (bi, li) != (b_index, l_index) and on_row(box) and box.x0 >= end - 1:
+                limit = min(limit, box.x0 - 0.3 * size)
 
-    ceiling = _max_bottom(page, fitz.Rect(line["bbox"]), b_index)
+    try:
+        drawings = page.get_drawings()
+    except Exception:
+        drawings = []
+    for drawing in drawings:
+        box = fitz.Rect(drawing["rect"])
+        if not on_row(box):
+            continue
+        if box.x0 >= end - 0.5:                     # a rule or border to the right
+            limit = min(limit, box.x0 - 1.5)
+        elif box.x0 <= x0 and end + 0.5 <= box.x1 < page.rect.x1 - 1:
+            limit = min(limit, box.x1 - 1.5)        # a cell or box drawn around it
+    return limit
 
-    rect = fitz.Rect(line["bbox"])
-    rect.y0 -= 1.0
-    rect.y1 += 1.0
-    page.add_redact_annot(rect)
+
+def _redact_spans(page: fitz.Page, spans: list[dict]) -> None:
+    """Remove the glyphs of exactly these runs.
+
+    MuPDF removes a glyph once a redaction covers about a tenth of its box, and
+    that box runs from an em above the baseline to a third of one below. So a
+    line's bounding box overlaps the glyphs of the rows above and below it
+    wherever lines sit close, and redacting it wiped their text. A thin band
+    through the middle of each run's own glyphs reaches nothing on another row.
+    """
+    for span in spans:
+        x0, _, x1, bottom = span["bbox"]
+        size = span.get("size", 11.0)
+        baseline = span.get("origin", (x0, bottom))[1]
+        page.add_redact_annot(fitz.Rect(x0, baseline - 0.45 * size,
+                                        x1, baseline - 0.35 * size))
     page.apply_redactions(**_REDACT_KW)
 
-    page = doc[page_no]
-    return _draw_runs(page, rebuilt, start_x, baseline_y, binder,
-                      available=available, spacing=spacing, max_bottom=ceiling)
 
+def _draw_runs(page: fitz.Page, runs: list[dict], start_x: float,
+               binder: FontBinder, available: float) -> dict:
+    """Draw styled runs left to right on their own baselines, within one row.
 
-def _reflow_block(doc: fitz.Document, page_no: int, b_index: int,
-                  l_index: int, s_index: int, new_text: str) -> dict:
-    """Re-wrap a whole paragraph with one of its runs replaced."""
-    page = doc[page_no]
-    block, _ = _locate(page, b_index)
-    pieces = []
-    for li, line in enumerate(block.get("lines", [])):
-        for si, span in enumerate(line.get("spans", [])):
-            text = new_text if (li == l_index and si == s_index) else span.get("text", "")
-            pieces.append(text)
-        pieces.append(" ")          # the wrapped break becomes a space
-    paragraph = " ".join("".join(pieces).split())
-    result = edit_block(doc, "%d:%d" % (page_no, b_index), paragraph)
-    result["reflowed"] = True
-    return result
-
-
-def _tokens(text: str):
-    """Split into words that keep their trailing space, so wrapping is clean."""
-    found = re.findall(r"\S+\s*|\s+", text)
-    return found or ([text] if text else [])
-
-
-def _draw_runs(page: fitz.Page, runs: list[dict], start_x: float, baseline_y: float,
-               binder: FontBinder, available: float, spacing: float = 1.15,
-               max_bottom: float | None = None) -> dict:
-    """Draw styled runs from a baseline, wrapping rather than running off the page.
-
-    Text longer than the space it replaced used to be squeezed to 55% and drawn
-    anyway, so the tail slid past the right edge and simply vanished -- missing
-    from the page and from the extracted text. Now it shrinks only slightly,
-    then wraps onto further lines, and reports if it still will not fit.
+    Wording wider than `available` is drawn smaller until it fits. Wrapping it
+    put the tail over the row beneath; letting it run on pushed it past the
+    page edge, where it was invisible.
     """
     fonts_before = fontmod.page_font_xrefs(page.parent, page.number)
     prepared = []
@@ -290,57 +328,24 @@ def _draw_runs(page: fitz.Page, runs: list[dict], start_x: float, baseline_y: fl
             continue
         alias, font = binder.bind(page, run["font"], run["text"])
         width = font.text_length(run["text"], fontsize=run["size"])
-        prepared.append({**run, "alias": alias, "font": font, "width": width})
+        prepared.append({**run, "alias": alias, "width": width})
         total += width
     if not prepared:
-        return {"ok": True, "scale": 1.0, "shrunk": False, "wrapped": False,
-                "overflow": False, "width": 0.0, "lines": 0}
+        return {"ok": True, "scale": 1.0, "shrunk": False, "width": 0.0}
 
-    # A small squeeze keeps a near miss on one line; beyond that, wrap.
-    scale = 1.0
-    if total > available:
-        scale = max(0.9, available / total)
-
-    body = max(run["size"] for run in prepared) * scale
-    line_height = body * spacing
-    ceiling = max_bottom if max_bottom is not None else page.rect.y1 - 4
-
+    scale = min(1.0, available / total) if total > 0 else 1.0
     pen = start_x
-    baseline = baseline_y
-    lines = 1
-    overflow = False
-
     for run in prepared:
-        size = run["size"] * scale
-        color = _color_tuple(run["color"])
-        for token in _tokens(run["text"]):
-            width = run["font"].text_length(token, fontsize=size)
-            if pen + width > start_x + available and pen > start_x:
-                if baseline + line_height > ceiling:
-                    overflow = True          # nowhere left to put it
-                    break
-                baseline += line_height
-                pen = start_x
-                lines += 1
-                token = token.lstrip()
-                width = run["font"].text_length(token, fontsize=size)
-            if not token:
-                continue
-            page.insert_text(fitz.Point(pen, baseline), token, fontname=run["alias"],
-                             fontsize=size, color=color, render_mode=0)
-            pen += width
-        if overflow:
-            break
+        page.insert_text(fitz.Point(pen, run["baseline"]), run["text"],
+                         fontname=run["alias"], fontsize=run["size"] * scale,
+                         color=_color_tuple(run["color"]), render_mode=0)
+        pen += run["width"] * scale
 
     fontmod.repair_inserted_fonts(page.parent, page.number, fonts_before)
-
     return {
         "ok": True,
         "scale": round(scale, 3),
         "shrunk": scale < 0.999,
-        "wrapped": lines > 1,
-        "overflow": overflow,
-        "lines": lines,
         "width": round(pen - start_x, 2),
     }
 
@@ -518,11 +523,8 @@ def edit_block(doc: fitz.Document, block_id: str, new_text: str) -> dict:
     rect = fitz.Rect(block["bbox"])
     max_bottom = _max_bottom(page, rect, b_index)
 
-    redact = fitz.Rect(rect)
-    redact.y0 -= 1.0
-    redact.y1 += 1.0
-    page.add_redact_annot(redact)
-    page.apply_redactions(**_REDACT_KW)
+    _redact_spans(page, [span for line in block.get("lines", [])
+                         for span in line.get("spans", []) if span.get("text")])
 
     page = doc[page_no]
     binder = FontBinder(doc)

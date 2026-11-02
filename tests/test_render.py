@@ -30,8 +30,9 @@ def squash(text):
     return re.sub(r"[^0-9A-Za-z]", "", text).lower()
 
 
-def read_page(doc, page_no=0):
-    pix = doc[page_no].get_pixmap(matrix=fitz.Matrix(300 / 72, 300 / 72), alpha=False)
+def read_page(doc, page_no=0, dpi=300, clip=None):
+    pix = doc[page_no].get_pixmap(matrix=fitz.Matrix(dpi / 72, dpi / 72), alpha=False,
+                                  clip=clip)
     array = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
         pix.height, pix.width, pix.n)
     found, _ = ENGINE(array)
@@ -53,7 +54,7 @@ def within_page(doc, page_no=0):
     return True
 
 
-def run_case(label, replacement, needle="4,250,000"):
+def run_case(label, replacement, needle="4,250,000", zoom_row=False):
     session = Session()
     session.open(SRC)
     span = next(s for b in textedit.layout(session.doc[0])["blocks"]
@@ -66,7 +67,14 @@ def run_case(label, replacement, needle="4,250,000"):
 
     doc = fitz.open(target)
     flat = " ".join(doc[0].get_text().split())
-    on_screen = read_page(doc)
+    if zoom_row:
+        # RapidOCR scales a big image down before reading it, so a 600 dpi
+        # page reads no better than a 300 dpi one; a strip of the row does.
+        row = fitz.Rect(span["bbox"])
+        on_screen = read_page(doc, dpi=600, clip=fitz.Rect(doc[0].rect.x0, row.y0 - 2,
+                                                           doc[0].rect.x1, row.y1 + 2))
+    else:
+        on_screen = read_page(doc)
     inside = within_page(doc)
     doc.close()
 
@@ -86,10 +94,12 @@ def run_case(label, replacement, needle="4,250,000"):
 print("== edited text must be visible ==")
 run_case("same length", "$9,875,400")
 run_case("a little longer", "$9,875,400 (nine million)")
+# Three lines' worth of words in one line: it stays on its row, shrunk to fit,
+# so it is read at the resolution someone zooming in would see it at.
 run_case("much longer", "The purchase price is $4,250,000 payable in immediately "
                         "available funds at closing on the Closing Date as defined in "
                         "Section 2.1 hereof and the balance within thirty days "
-                        "thereafter without setoff or deduction 1234567890")
+                        "thereafter without setoff or deduction 1234567890", zoom_row=True)
 run_case("shorter", "$1")
 run_case("digits only", "1234567890 0987654321")
 run_case("punctuation heavy", "Ref #A-12/B (rev. 3) @ 50% -- see note [4]")
