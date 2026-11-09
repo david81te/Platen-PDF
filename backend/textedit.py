@@ -13,6 +13,7 @@ Tuned for PDFs exported from Word, which produce clean, well-separated text runs
 from __future__ import annotations
 
 import html as html_mod
+import math
 import re
 
 import pymupdf as fitz
@@ -110,45 +111,140 @@ class FontBinder:
 
 
 def layout(page: fitz.Page) -> dict:
-    """Editable text structure for one page: blocks -> lines -> spans."""
+    """Editable text structure for one page: blocks -> lines -> spans.
+
+    In the coordinates of the page as it is shown, which is what the window
+    draws on. PyMuPDF reports text in the page's unrotated coordinates, so on
+    a page turned 90 degrees every place to click landed somewhere else.
+    """
     raw = page.get_text("dict")
+    turn = page.rotation_matrix
+    spin = fitz.Matrix(turn.a, turn.b, turn.c, turn.d, 0, 0)
+
+    def shown(box) -> list:
+        return list(fitz.Rect(box) * turn)
+
     blocks = []
     for b_index, block in enumerate(raw.get("blocks", [])):
         if block.get("type") != 0:
             continue
         lines = []
         for l_index, line in enumerate(block.get("lines", [])):
+            way = fitz.Point(line.get("dir", (1, 0))) * spin
+            upright = abs(way.x - 1) < 0.01 and abs(way.y) < 0.01
             spans = []
             for s_index, span in enumerate(line.get("spans", [])):
                 if not span.get("text"):
                     continue
                 bold, italic = _flags(span)
+                origin = span.get("origin", (span["bbox"][0], span["bbox"][3]))
                 spans.append({
                     "id": f"{page.number}:{b_index}:{l_index}:{s_index}",
                     "text": span["text"],
-                    "bbox": list(span["bbox"]),
-                    "origin": list(span.get("origin", (span["bbox"][0], span["bbox"][3]))),
+                    "bbox": shown(span["bbox"]),
+                    "origin": list(fitz.Point(origin) * turn),
                     "font": span.get("font", ""),
                     "size": round(span.get("size", 11.0), 2),
                     "color": span.get("color", 0),
                     "bold": bold,
                     "italic": italic,
+                    "upright": upright,
                 })
             if spans:
                 lines.append({
                     "id": f"{page.number}:{b_index}:{l_index}",
-                    "bbox": list(line["bbox"]),
-                    "dir": list(line.get("dir", (1, 0))),
+                    "bbox": shown(line["bbox"]),
+                    "dir": [round(way.x, 4), round(way.y, 4)],
+                    "upright": upright,
                     "spans": spans,
                 })
         if lines:
             blocks.append({
                 "id": f"{page.number}:{b_index}",
-                "bbox": list(block["bbox"]),
+                "bbox": shown(block["bbox"]),
                 "lines": lines,
+                "upright": all(ln["upright"] for ln in lines),
                 "text": "\n".join("".join(s["text"] for s in ln["spans"]) for ln in lines),
             })
     return {"page": page.number, "blocks": blocks}
+
+
+class _Frame:
+    """A line's own coordinates: x along the text, y down from its baseline.
+
+    Every rule the editor follows - which runs flow together, how much room
+    a row has, the thin band to redact, where a paragraph's next line goes -
+    is written for text running left to right. In this frame all text does,
+    so text turned 90 or 180 degrees, or running up a page's margin, is edited
+    by the same rules. For ordinary text the frame is the page itself.
+    """
+
+    def __init__(self, direction=(1.0, 0.0)):
+        dx, dy = direction
+        length = math.hypot(dx, dy) or 1.0
+        dx, dy = dx / length, dy / length
+        self.upright = abs(dx - 1) < 1e-3 and abs(dy) < 1e-3
+        # A quarter, half or three-quarter turn keeps boxes exact.
+        self.square = min(abs(dx), abs(dy)) < 1e-3
+        self.direction = (dx, dy)
+        self.to_page = fitz.Matrix(dx, dy, -dy, dx, 0, 0)
+        self.to_local = fitz.Matrix(dx, -dy, dy, dx, 0, 0)
+
+    def rect(self, box) -> fitz.Rect:
+        return fitz.Rect(box) if self.upright else fitz.Rect(box) * self.to_local
+
+    def point(self, at) -> fitz.Point:
+        return fitz.Point(at) if self.upright else fitz.Point(at) * self.to_local
+
+    def area(self, box: fitz.Rect):
+        """A rectangle in this frame, as something a redaction can cover."""
+        return fitz.Rect(box) if self.upright else fitz.Rect(box).quad * self.to_page
+
+    def put(self, page: fitz.Page, at, text: str, **options) -> None:
+        if self.upright:
+            page.insert_text(fitz.Point(at), text, **options)
+            return
+        where = fitz.Point(at) * self.to_page
+        # insert_text applies its morph with y pointing up, so the turn it
+        # needs is the mirror of the one that maps this frame onto the page.
+        page.insert_text(where, text, morph=(where, self.to_local), **options)
+
+
+_UPRIGHT = _Frame()
+
+
+def _local_span(span: dict, direction, frame: _Frame) -> dict:
+    """A copy of a run with its box and origin in the line's own frame."""
+    if frame.square:
+        box = frame.rect(span["bbox"])
+    else:
+        box = (fitz.recover_span_quad(direction, span) * frame.to_local).rect
+    origin = span.get("origin", (span["bbox"][0], span["bbox"][3]))
+    return {**span, "bbox": list(box), "origin": list(frame.point(origin))}
+
+
+def _local_line(line: dict, frame: _Frame) -> dict:
+    direction = line.get("dir", (1, 0))
+    spans = [_local_span(span, direction, frame) for span in line.get("spans", [])]
+    box = fitz.Rect()
+    for span in spans:
+        box |= fitz.Rect(span["bbox"])
+    if box.is_empty:
+        box = frame.rect(line["bbox"])
+    return {**line, "bbox": list(box), "spans": spans}
+
+
+def _local_block(block: dict, frame: _Frame) -> dict:
+    lines = [_local_line(line, frame) for line in block.get("lines", [])]
+    box = fitz.Rect()
+    for line in lines:
+        box |= fitz.Rect(line["bbox"])
+    return {**block, "bbox": list(box), "lines": lines}
+
+
+def _shown_area(page: fitz.Page) -> fitz.Rect:
+    """The visible page in the unrotated coordinates the text is reported in."""
+    return page.rect * page.derotation_matrix
 
 
 def _locate(page: fitz.Page, target_block: int, target_line: int | None = None):
@@ -180,11 +276,6 @@ def _page(doc: fitz.Document, page_no: int) -> fitz.Page:
     return doc[page_no]
 
 
-def _horizontal(line: dict) -> bool:
-    direction = line.get("dir", (1, 0))
-    return abs(direction[0]) > 0.999
-
-
 def edit_span(doc: fitz.Document, span_id: str, new_text: str,
               binder: FontBinder | None = None) -> dict:
     """Replace one text run without touching any other row of the page.
@@ -195,6 +286,9 @@ def edit_span(doc: fitz.Document, span_id: str, new_text: str,
     the row has room for is drawn smaller until it fits. It used to wrap, which
     laid the tail over the row beneath, and re-wrapping the paragraph instead
     merged separate rows into one.
+
+    Works in the line's own frame, so the same holds for text that is turned
+    or runs vertically.
     """
     parts = parse_id(span_id)
     if len(parts) != 4:
@@ -204,9 +298,9 @@ def edit_span(doc: fitz.Document, span_id: str, new_text: str,
     _, line = _locate(page, b_index, l_index)
     if s_index >= len(line["spans"]):
         raise ValueError("Text run no longer exists on this page.")
-    if not _horizontal(line):
-        raise ValueError("Rotated or vertical text can't be edited in place yet.")
 
+    frame = _Frame(line.get("dir", (1, 0)))
+    line = _local_line(line, frame)
     target = line["spans"][s_index]
     spans = [s for s in line["spans"] if s.get("text") or s is target]
     group, next_x = _touching_runs(spans, target)
@@ -221,12 +315,12 @@ def edit_span(doc: fitz.Document, span_id: str, new_text: str,
 
     start_x = group[0]["bbox"][0]
     original_end = max(span["bbox"][2] for span in group)
-    room = _room_right(page, group, next_x, b_index, l_index)
+    room = _room_right(page, group, next_x, b_index, l_index, frame)
     available = max(original_end, room) - start_x
 
-    _redact_spans(page, group)
+    _redact_spans(doc, page_no, group, frame)
     page = doc[page_no]
-    return _draw_runs(page, runs, start_x, binder or FontBinder(doc), available)
+    return _draw_runs(page, runs, start_x, binder or FontBinder(doc), available, frame)
 
 
 def _touching_runs(spans: list[dict], target: dict) -> tuple[list[dict], float | None]:
@@ -249,10 +343,12 @@ def _touching_runs(spans: list[dict], target: dict) -> tuple[list[dict], float |
 
 
 def _room_right(page: fitz.Page, group: list[dict], next_x: float | None,
-                b_index: int, l_index: int) -> float:
-    """How far right the edited runs may reach before meeting anything on their row.
+                b_index: int, l_index: int, frame: _Frame = _UPRIGHT) -> float:
+    """How far along its row the edited text may reach before meeting anything.
 
-    Must be called before the redaction, while the neighbours are still there.
+    In the line's frame: `group` is already there, and the page's other
+    content is brought into it. Must be called before the redaction, while
+    the neighbours are still there.
     """
     size = max(span.get("size", 11.0) for span in group)
     baseline = group[0].get("origin", (0, group[0]["bbox"][3]))[1]
@@ -263,11 +359,18 @@ def _room_right(page: fitz.Page, group: list[dict], next_x: float | None,
     def on_row(box: fitz.Rect) -> bool:
         return box.y0 < row_bottom and box.y1 > row_top
 
+    area = frame.rect(_shown_area(page))
     raw = page.get_text("dict").get("blocks", [])
-    # Margins are taken as even: the right one mirrors the leftmost text.
-    lefts = [block["bbox"][0] for block in raw if block.get("type") == 0]
-    margin = max(18.0, (min(lefts) if lefts else 72.0) - page.rect.x0)
-    limit = page.rect.x1 - margin
+    # Margins are taken as even: the far one mirrors where text running the
+    # same way starts. Capped, because text that only starts mid-page - a
+    # label up the side, a form field - is not a sign of a huge margin; the
+    # mirror once left such a line almost no room at all.
+    dx, dy = frame.direction
+    lefts = [frame.rect(line["bbox"]).x0 for block in raw if block.get("type") == 0
+             for line in block.get("lines", [])
+             if abs(line["dir"][0] - dx) < 1e-3 and abs(line["dir"][1] - dy) < 1e-3]
+    margin = min(108.0, max(18.0, (min(lefts) if lefts else area.x0 + 72.0) - area.x0))
+    limit = area.x1 - margin
     if next_x is not None:
         limit = min(limit, next_x - 0.3 * size)
 
@@ -275,7 +378,7 @@ def _room_right(page: fitz.Page, group: list[dict], next_x: float | None,
         if block.get("type") != 0:
             continue
         for li, other in enumerate(block.get("lines", [])):
-            box = fitz.Rect(other["bbox"])
+            box = frame.rect(other["bbox"])
             if (bi, li) != (b_index, l_index) and on_row(box) and box.x0 >= end - 1:
                 limit = min(limit, box.x0 - 0.3 * size)
 
@@ -284,36 +387,78 @@ def _room_right(page: fitz.Page, group: list[dict], next_x: float | None,
     except Exception:
         drawings = []
     for drawing in drawings:
-        box = fitz.Rect(drawing["rect"])
+        box = frame.rect(drawing["rect"])
         if not on_row(box):
             continue
         if box.x0 >= end - 0.5:                     # a rule or border to the right
             limit = min(limit, box.x0 - 1.5)
-        elif box.x0 <= x0 and end + 0.5 <= box.x1 < page.rect.x1 - 1:
+        elif box.x0 <= x0 and end + 0.5 <= box.x1 < area.x1 - 1:
             limit = min(limit, box.x1 - 1.5)        # a cell or box drawn around it
     return limit
 
 
-def _redact_spans(page: fitz.Page, spans: list[dict]) -> None:
-    """Remove the glyphs of exactly these runs.
+def _ink(page: fitz.Page) -> int:
+    """How many visible characters the page has."""
+    return sum(1 for block in page.get_text("rawdict").get("blocks", [])
+               for line in block.get("lines", []) for span in line["spans"]
+               for char in span["chars"] if not char["c"].isspace())
+
+
+def _redact_spans(doc: fitz.Document, page_no: int, spans: list[dict],
+                  frame: _Frame = _UPRIGHT) -> None:
+    """Remove the glyphs of exactly these runs, whose boxes are in `frame`.
 
     MuPDF removes a glyph once a redaction covers about a tenth of its box, and
     that box runs from an em above the baseline to a third of one below. So a
     line's bounding box overlaps the glyphs of the rows above and below it
     wherever lines sit close, and redacting it wiped their text. A thin band
     through the middle of each run's own glyphs reaches nothing on another row.
+
+    It is tried on a copy of the page first. For text at quarter turns the
+    band is exact, but MuPDF tests slanted glyphs against their upright
+    bounding box, so at other angles it can catch letters on the rows beside
+    it. An edit is refused rather than allowed to take someone's words.
     """
+    areas = []
+    own = 0
     for span in spans:
         x0, _, x1, bottom = span["bbox"]
         size = span.get("size", 11.0)
         baseline = span.get("origin", (x0, bottom))[1]
-        page.add_redact_annot(fitz.Rect(x0, baseline - 0.45 * size,
-                                        x1, baseline - 0.35 * size))
+        top, foot = baseline - 0.45 * size, baseline - 0.35 * size
+        # MuPDF judges a slanted redaction by its upright bounding box too, and
+        # one long band at an angle has a box tall enough to reach the next
+        # rows. Short pieces each have a small box.
+        step = (x1 - x0) if frame.square else max(1.0, 0.35 * size)
+        start = x0
+        while start < x1 - 1e-6:
+            areas.append(frame.area(fitz.Rect(start, top, min(x1, start + step), foot)))
+            start += step
+        own += sum(1 for c in span.get("text", "") if not c.isspace())
+
+    try:
+        trial = fitz.open()
+        trial.insert_pdf(doc, from_page=page_no, to_page=page_no, annots=False)
+        scratch = trial[0]
+        before = _ink(scratch)
+        for area in areas:
+            scratch.add_redact_annot(area)
+        scratch.apply_redactions(**_REDACT_KW)
+        lost = before - _ink(scratch)
+    except Exception:
+        lost = own            # the trial is a precaution; never let it block an edit
+    if lost > own:
+        raise ValueError("That text sits too close to other text to be changed "
+                         "without erasing some of it, so nothing was changed.")
+
+    page = doc[page_no]
+    for area in areas:
+        page.add_redact_annot(area)
     page.apply_redactions(**_REDACT_KW)
 
 
 def _draw_runs(page: fitz.Page, runs: list[dict], start_x: float,
-               binder: FontBinder, available: float) -> dict:
+               binder: FontBinder, available: float, frame: _Frame = _UPRIGHT) -> dict:
     """Draw styled runs left to right on their own baselines, within one row.
 
     Wording wider than `available` is drawn smaller until it fits. Wrapping it
@@ -336,9 +481,9 @@ def _draw_runs(page: fitz.Page, runs: list[dict], start_x: float,
     scale = min(1.0, available / total) if total > 0 else 1.0
     pen = start_x
     for run in prepared:
-        page.insert_text(fitz.Point(pen, run["baseline"]), run["text"],
-                         fontname=run["alias"], fontsize=run["size"] * scale,
-                         color=_color_tuple(run["color"]), render_mode=0)
+        frame.put(page, (pen, run["baseline"]), run["text"],
+                  fontname=run["alias"], fontsize=run["size"] * scale,
+                  color=_color_tuple(run["color"]), render_mode=0)
         pen += run["width"] * scale
 
     fontmod.repair_inserted_fonts(page.parent, page.number, fonts_before)
@@ -423,17 +568,18 @@ def _wrap(font: fitz.Font, size: float, text: str, max_width: float) -> list[tup
 
 def _typeset(page: fitz.Page, rect: fitz.Rect, text: str, style: dict, align: str,
              spacing: float, binder: FontBinder, min_scale: float = 0.85,
-             max_bottom: float | None = None) -> dict:
+             max_bottom: float | None = None, frame: _Frame = _UPRIGHT) -> dict:
     """Lay out wrapped, aligned text inside `rect` using the page content stream.
 
     Grows the box downward into free space first, then shrinks the font -- but
     only mildly. Text that still does not fit is drawn at the floor size and
     flagged as overflowing, which reads far better than silently shrinking a
-    paragraph to an illegible size to make it fit.
+    paragraph to an illegible size to make it fit. `rect` and `max_bottom` are
+    in `frame`, which is how a turned paragraph wraps the way it reads.
     """
     alias, font = binder.bind(page, style["font"], text)
     width = rect.width
-    ceiling = max_bottom if max_bottom is not None else page.rect.y1 - 4
+    ceiling = max_bottom if max_bottom is not None else frame.rect(_shown_area(page)).y1 - 4
     available = max(rect.height, ceiling - rect.y0)
 
     scale = 1.0
@@ -466,8 +612,8 @@ def _typeset(page: fitz.Page, rect: fitz.Rect, text: str, style: dict, align: st
                 if align == "justify" and not is_last and len(words) > 1:
                     gap = space_width + (width - natural) / (len(words) - 1)
             for word, word_width in zip(words, widths):
-                page.insert_text(fitz.Point(pen, baseline), word, fontname=alias,
-                                 fontsize=size, color=color)
+                frame.put(page, (pen, baseline), word, fontname=alias,
+                          fontsize=size, color=color)
                 pen += word_width + gap
         baseline += size * spacing
 
@@ -482,14 +628,16 @@ def _typeset(page: fitz.Page, rect: fitz.Rect, text: str, style: dict, align: st
     }
 
 
-def _max_bottom(page: fitz.Page, rect: fitz.Rect, skip_block: int) -> float:
+def _max_bottom(page: fitz.Page, rect: fitz.Rect, skip_block: int,
+                frame: _Frame = _UPRIGHT) -> float:
     """Lowest y an edited paragraph may grow to before hitting other content.
 
     Without this a paragraph that gains lines just overprints whatever sits
     below it -- typically a table. Must be called before the redaction, while
-    the neighbouring content is still on the page.
+    the neighbouring content is still on the page. `rect` and the answer are
+    in `frame`; "below" is below as the paragraph reads.
     """
-    limit = page.rect.y1 - 4.0
+    limit = frame.rect(_shown_area(page)).y1 - 4.0
     def consider(other: fitz.Rect):
         nonlocal limit
         overlaps_x = other.x1 > rect.x0 + 1 and other.x0 < rect.x1 - 1
@@ -497,10 +645,10 @@ def _max_bottom(page: fitz.Page, rect: fitz.Rect, skip_block: int) -> float:
             limit = min(limit, other.y0 - 1.0)
     for index, block in enumerate(page.get_text("dict").get("blocks", [])):
         if index != skip_block:
-            consider(fitz.Rect(block["bbox"]))
+            consider(frame.rect(block["bbox"]))
     try:
         for drawing in page.get_drawings():
-            consider(fitz.Rect(drawing["rect"]))
+            consider(frame.rect(drawing["rect"]))
     except Exception:
         pass
     return max(limit, rect.y1)
@@ -514,23 +662,30 @@ def edit_block(doc: fitz.Document, block_id: str, new_text: str) -> dict:
     page_no, b_index = parts
     page = _page(doc, page_no)
     block, _ = _locate(page, b_index)
-    if not any(_horizontal(ln) for ln in block.get("lines", []) if ln.get("spans")):
-        raise ValueError("Rotated or vertical text can't be edited in place yet.")
+    lines = [ln for ln in block.get("lines", []) if ln.get("spans")]
+    ways = {(round(ln["dir"][0], 3), round(ln["dir"][1], 3)) for ln in lines}
+    if len(ways) > 1:
+        raise ValueError("This paragraph has text running in different directions, so "
+                         "it can't be rewritten as one. Edit its lines one at a time.")
 
-    style = _dominant_style(block)
-    align = _alignment(block)
-    spacing = _line_spacing(block, style["size"])
-    rect = fitz.Rect(block["bbox"])
-    max_bottom = _max_bottom(page, rect, b_index)
+    # Laid out in the paragraph's own frame, so a turned paragraph wraps the
+    # way it reads rather than the way the page is stored.
+    frame = _Frame(lines[0]["dir"] if lines else (1, 0))
+    local = _local_block(block, frame)
+    style = _dominant_style(local)
+    align = _alignment(local)
+    spacing = _line_spacing(local, style["size"])
+    rect = fitz.Rect(block["bbox"]) if frame.upright else fitz.Rect(local["bbox"])
+    max_bottom = _max_bottom(page, rect, b_index, frame)
 
-    _redact_spans(page, [span for line in block.get("lines", [])
-                         for span in line.get("spans", []) if span.get("text")])
+    _redact_spans(doc, page_no, [span for line in local["lines"]
+                                 for span in line["spans"] if span.get("text")], frame)
 
     page = doc[page_no]
     binder = FontBinder(doc)
     fonts_before = fontmod.page_font_xrefs(doc, page_no)
     result = _typeset(page, rect, new_text, style, align, spacing, binder,
-                      max_bottom=max_bottom)
+                      max_bottom=max_bottom, frame=frame)
     fontmod.repair_inserted_fonts(doc, page_no, fonts_before)
     return result
 

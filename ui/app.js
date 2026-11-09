@@ -1062,8 +1062,19 @@ function openEditor(rect, value, multiline, onSave, sizePt) {
   };
 }
 
+// Text that does not run across the screen - up a margin, upside down, on a
+// turned page - still gets a box that does, so it can be read and typed in.
+// It opens where the text's box starts, as long as the text is.
+function editingBox(box, upright, sizePt, minAcross) {
+  if (upright !== false) return box;
+  const w = box[2] - box[0];
+  const h = box[3] - box[1];
+  const across = Math.max(Math.min(w, h), (sizePt || 11) * 1.4, minAcross || 0);
+  return [box[0], box[1], box[0] + Math.max(w, h), box[1] + across];
+}
+
 function editSpan(sp) {
-  openEditor(sp.bbox, sp.text, false, async (text) => {
+  openEditor(editingBox(sp.bbox, sp.upright, sp.size), sp.text, false, async (text) => {
     const res = await busyRun('Rewriting text…', 'edit_span', sp.id, text);
     // A line edit never spills onto another row, so long wording is shrunk.
     if (res && res.shrunk) toast(res.scale < 0.9
@@ -1075,7 +1086,7 @@ function editSpan(sp) {
 
 function editBlock(b) {
   const first = b.lines[0] && b.lines[0].spans[0];
-  openEditor(b.bbox, b.text, true, async (text) => {
+  openEditor(editingBox(b.bbox, b.upright, first && first.size, 60), b.text, true, async (text) => {
     const res = await busyRun('Re-typesetting paragraph…', 'edit_block', b.id, text);
     if (res && res.overflow) toast('New text is longer than the original space.', 'err');
     else if (res && res.shrunk) toast('Text was shrunk slightly to fit.');
