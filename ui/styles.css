@@ -259,6 +259,26 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
 .msg.ok { border-left-color: var(--ok); }
 @keyframes pop { from { opacity: 0; transform: translateY(8px); } }
 
+/* ---- update notice ---- */
+#updnote {
+  position: fixed; right: 18px; bottom: 46px; z-index: 190; width: 300px;
+  display: flex; flex-direction: column; gap: 6px;
+  background: #2b3242; border: 1px solid var(--line); border-left: 3px solid var(--accent);
+  border-radius: 9px; padding: 12px 14px; box-shadow: 0 14px 40px #000a;
+  animation: pop .18s ease-out;
+}
+#updnote span { color: var(--muted); font-size: 12px; }
+#updnote .row { display: flex; gap: 6px; margin-top: 4px; }
+#updnote a { color: var(--muted); font-size: 11.5px; cursor: pointer; align-self: flex-start; }
+#updnote a:hover { color: var(--ink); text-decoration: underline; }
+.updnotes {
+  white-space: pre-wrap; max-height: 260px; overflow-y: auto; margin: 8px 0;
+  padding: 10px; background: var(--bg); border: 1px solid var(--line);
+  border-radius: 7px; font-size: 12px; line-height: 1.5;
+}
+.updbar { height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; margin: 10px 0 4px; }
+.updbar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+
 #busy {
   display: none; position: fixed; inset: 0; z-index: 150;
   background: #0009; place-content: center; justify-items: center; gap: 12px;

@@ -63,6 +63,21 @@ hard way.
 **The inspector's side panels have been `class="pane"` for ever.** The
 viewer's panes are `vpane`.
 
+**Python's HTTPS does not trust what Windows trusts.** Windows adds most root
+certificates only when its own code first asks for one, so on a PC that had
+never met GitHub's newer Sectigo root, every update check failed - quietly,
+because offline is meant to be quiet. `backend/__init__.py` routes all HTTPS
+through `truststore` (Windows does the verifying). Do not remove it.
+
+**The in-app updater finds the release asset by name** (`PlatenPDF-Setup.zip`)
+and refuses it unless GitHub's sha256 digest, the exe's version stamp and its
+`--selftest` all agree. It then runs *that release's* `install.ps1 -Quiet
+-NoShortcuts` after the old copy exits, so installer changes ship with the
+version that contains them, and a quiet install must never open windows.
+Only a copy the installer put in place (it has `Uninstall Platen PDF.cmd`
+beside it) can update itself; the portable exe and a source run get the
+download page.
+
 **Closing a tab renumbers every tab after it.** Anything holding tab indices
 (the panes do) must shift them, or it ends up pointing at a different
 document.

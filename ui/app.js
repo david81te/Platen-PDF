@@ -2018,6 +2018,7 @@ const ACTIONS = {
   props: () => promptProps(),
   print: () => promptPrint(),
   about: () => showAbout(),
+  updates: () => checkUpdatesNow(),
   defaultapp: async () => {
     const st = await run('default_app_status');
     if (!st) return;
@@ -2497,6 +2498,138 @@ async function showAbout() {
     '<table class="about-l"><tbody>' + parts + '</tbody></table>', null, 'OK');
 }
 
+/* ---------- updates ---------- */
+
+const bare = (tag) => String(tag || '').replace(/^v/i, '');
+
+// Asked once per launch, a few seconds in, so the document comes first. An
+// answer that cannot be had (offline, say) is not worth mentioning.
+async function checkForUpdate() {
+  await new Promise((r) => setTimeout(r, 4000));
+  let found = null;
+  try { found = await call('update_should_mention'); } catch (e) { return; }
+  if (found && found.show) showUpdateNote(found);
+}
+
+function showUpdateNote(u, ready = false) {
+  const old = $('updnote');
+  if (old) old.remove();
+  const go = ready ? 'Restart and update' : (u.installable ? 'Install update' : 'Download');
+  const note = el('div', '',
+    '<b>Platen PDF ' + escapeHtml(bare(u.latest)) +
+    (ready ? ' is ready to install' : ' is available') + '</b>' +
+    '<span>You have ' + escapeHtml(bare(u.current)) + '.</span>' +
+    '<div class="row"><button class="primary" data-go>' + go + '</button>' +
+    (u.notes ? '<button data-notes>What’s new</button>' : '') +
+    '<button data-later>Later</button></div>' +
+    (ready ? '' : '<a data-skip>Skip this version</a>'));
+  note.id = 'updnote';
+  document.body.appendChild(note);
+  note.querySelector('[data-go]').onclick = () => {
+    note.remove();
+    if (ready) confirmRestart(u); else startUpdate(u);
+  };
+  const notes = note.querySelector('[data-notes]');
+  if (notes) notes.onclick = () => showUpdateNotes(u);
+  note.querySelector('[data-later]').onclick = () => note.remove();
+  const skip = note.querySelector('[data-skip]');
+  if (skip) skip.onclick = async () => { note.remove(); await run('update_dismiss', u.latest); };
+}
+
+// Release notes are written for the download page; the footer under the rule
+// says how to install by hand, which is what the button is about to do.
+function notesHtml(u) {
+  const text = String(u.notes || '').split(/\r?\n-{3,}\s*\r?\n/)[0]
+    .replace(/\*\*/g, '').replace(/^#+\s*/gm, '').trim();
+  return text ? '<div class="updnotes">' + escapeHtml(text) + '</div>' : '';
+}
+
+function showUpdateNotes(u) {
+  modal('What’s new in ' + escapeHtml(bare(u.latest)), notesHtml(u),
+    () => { if ($('updnote')) $('updnote').remove(); startUpdate(u); },
+    u.installable ? 'Install update' : 'Download', true);
+}
+
+async function checkUpdatesNow() {
+  const u = await busyRun('Checking for updates…', 'update_check', true);
+  if (!u) return;
+  const auto = '<div class="field"><label><input type="checkbox" name="auto" style="width:auto"' +
+    (u.enabled ? ' checked' : '') + '> Check automatically once a day</label></div>';
+  const keep = (v) => run('update_set_enabled', v.auto);
+  if (u.update_available) {
+    modal('Update available',
+      '<p>Platen PDF ' + escapeHtml(bare(u.latest)) + ' is available. You have ' +
+      escapeHtml(bare(u.current)) + '.</p>' + notesHtml(u) + auto,
+      async (v) => { await keep(v); startUpdate(u); },
+      u.installable ? 'Install update' : 'Download', true);
+  } else {
+    modal('Check for updates',
+      '<p>' + (u.reached
+        ? 'You have the newest version, ' + escapeHtml(bare(u.current)) + '.'
+        : 'The update server could not be reached. Check the internet connection and try again.') +
+      '</p>' + auto, keep, 'OK');
+  }
+}
+
+async function startUpdate(u) {
+  // A copy that was not installed (the portable file, or a run from source)
+  // cannot replace itself, so it gets the download page instead.
+  if (!u.installable) { await run('update_open_page'); return; }
+  if (!await run('update_download')) return;
+  const close = modal('Updating to ' + escapeHtml(bare(u.latest)),
+    '<p id="upd-text">Downloading…</p><div class="updbar"><i id="upd-bar"></i></div>' +
+    '<p class="hint">Keep working if you like. Nothing changes until you choose to restart.</p>',
+    null);
+  const hide = $('modal').querySelector('[data-x]');
+  if (hide) hide.textContent = 'Hide';
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 400));
+    const p = await run('update_progress');
+    if (!p) return;
+    const text = $('upd-text');
+    const bar = $('upd-bar');
+    if (p.stage === 'downloading' && text) {
+      const share = p.total ? p.done / p.total : 0;
+      text.textContent = 'Downloading… ' + Math.round(share * 100) + '% of ' +
+        Math.round((p.total || 0) / 1048576) + ' MB';
+      bar.style.width = (share * 100).toFixed(1) + '%';
+    } else if (p.stage === 'checking' && text) {
+      text.textContent = 'Checking the new version…';
+      bar.style.width = '100%';
+    } else if (p.stage === 'failed') {
+      if (text) close();
+      toast(p.error || 'The update could not be prepared.', 'err');
+      return;
+    } else if (p.stage === 'ready') {
+      // Still open means they are waiting on it; hidden means they went back
+      // to work, so wait to be asked rather than take over the screen.
+      if (text) { close(); confirmRestart(u); } else showUpdateNote(u, true);
+      return;
+    }
+  }
+}
+
+async function confirmRestart(u) {
+  const pending = await run('unsaved_list');
+  const names = ((pending && pending.tabs) || []).map((t) => escapeHtml(t.name || 'Untitled'));
+  modal('Ready to update',
+    '<p>Platen PDF will close, install version ' + escapeHtml(bare(u.latest)) +
+    ' and reopen your documents.</p>' +
+    (names.length ? '<p class="hint">These have unsaved changes, which will be saved first: ' +
+      names.join(', ') + '.</p>' : ''),
+    async () => {
+      if (names.length) {
+        const saved = await busyRun('Saving…', 'save_all_tabs');
+        if (!saved || saved.skipped.length) {
+          toast('Not updated yet: some documents are still unsaved.', 'err');
+          showUpdateNote(u, true);
+          return;
+        }
+      }
+      if (await busyRun('Closing to update…', 'update_install')) showBusy('Installing the update…');
+    }, names.length ? 'Save and update' : 'Restart and update');
+}
+
 async function promptProps() {
   const i = S.info || {};
   modal('Document properties',
@@ -2538,7 +2671,7 @@ document.querySelectorAll('.menu').forEach((m) => {
       m.classList.remove('open');
       const fn = ACTIONS[li.dataset.act];
       if (!fn) return;
-      if (!S.info && !['open', 'create', 'defaultapp', 'about'].includes(li.dataset.act)) {
+      if (!S.info && !['open', 'create', 'defaultapp', 'about', 'updates'].includes(li.dataset.act)) {
         toast('Open a document first.', 'err');
         return;
       }
@@ -2823,7 +2956,9 @@ ready().then(async () => {
   }
   refreshTabs();
   const pending = await run('pending_open');
-  if (pending && pending.path) await window.openOnStart(pending.path);
+  // Several when an update has just reopened what was open before it.
+  for (const path of (pending && pending.paths) || []) await window.openOnStart(path);
+  checkForUpdate();
 });
 
 /* ---------- moving between panes ---------- */

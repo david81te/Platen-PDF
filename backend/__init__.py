@@ -1,9 +1,9 @@
 """Platen PDF backend.
 
-The one thing that happens at import time is pinning WebView2's colour
-handling, because it has to be in place before the first window is created and
-every entry point - the application and every UI test - imports this package
-before it opens one.
+Two things happen at import time, because every entry point - the
+application and every UI test - imports this package before it does anything
+else: pinning WebView2's colour handling, which has to be in place before the
+first window is created, and having HTTPS trust what Windows trusts.
 """
 import os
 
@@ -21,3 +21,16 @@ import os
 # overridable for anyone who genuinely wants their display profile honoured.
 os.environ.setdefault("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
                       "--force-color-profile=srgb")
+
+# Python checks certificates against the roots already in the Windows store,
+# but Windows adds most roots only when its own code first asks for one. When
+# GitHub moved to a newer Sectigo root, every update check on a PC that had
+# not yet met it failed "unable to get issuer certificate" - silently, because
+# offline is meant to be quiet. truststore verifies through Windows itself,
+# which fetches the root the way Edge would. Every HTTPS call goes through it:
+# updates, the account and sync.
+try:
+    import truststore
+    truststore.inject_into_ssl()
+except ImportError:
+    pass

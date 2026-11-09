@@ -148,7 +148,9 @@ if (-not $NoAssociation) {
     # Puts Platen PDF in the "Open with" list. Windows will not let any
     # program make itself the default; that is a choice only you can make.
     Say "  Registering as a PDF application..."
-    & $exe --register | Out-Null
+    # Quiet is how Platen PDF updates itself: re-register, but leave Settings
+    # closed for someone who has already chosen their PDF app.
+    if ($Quiet) { & $exe --register --quiet | Out-Null } else { & $exe --register | Out-Null }
 }
 
 Say ""

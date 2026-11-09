@@ -46,6 +46,7 @@ This is a plain description of the licence, not legal advice.
 | Shapely 2.1.2 | BSD-3-Clause | OCR geometry |
 | NumPy 2.5.3 | BSD-3-Clause | pixel and image maths |
 | pywin32 312 | PSF | Office automation, Windows APIs |
+| truststore 0.10.5 | MIT | HTTPS checked by Windows' own certificate store |
 
 PyInstaller is GPLv2 with a linking exception written for exactly this purpose:
 it lets the executables it produces carry whatever licence you choose. It is a

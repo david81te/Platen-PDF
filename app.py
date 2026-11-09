@@ -66,10 +66,13 @@ def main() -> None:
         except RuntimeError as exc:
             print(exc)
             raise SystemExit(1)
-        print("Registered. Windows still needs you to confirm the choice:")
-        print("  Settings > Apps > Default apps > Platen PDF")
-        print("  current .pdf handler:", state["current_handler"])
-        shell_integration.open_default_apps_settings()
+        # --quiet is how an update re-registers: someone who already chose
+        # their PDF app does not want Settings thrown at them every version.
+        if "--quiet" not in sys.argv:
+            print("Registered. Windows still needs you to confirm the choice:")
+            print("  Settings > Apps > Default apps > Platen PDF")
+            print("  current .pdf handler:", state["current_handler"])
+            shell_integration.open_default_apps_settings()
         raise SystemExit(0)
 
     if "--unregister" in sys.argv:
@@ -97,6 +100,8 @@ def main() -> None:
     # Hand the file to a copy that is already running rather than starting a
     # second one; this is what keeps Explorer from spawning a process per file.
     if startup and single_instance.deliver(startup[0]):
+        for extra in startup[1:]:
+            single_instance.deliver(extra)
         raise SystemExit(0)
 
     api = Api()
@@ -117,7 +122,7 @@ def main() -> None:
     titlebar.attach(window)
 
     if startup:
-        api._startup_path = os.path.abspath(startup[0])
+        api._startup_paths = [os.path.abspath(path) for path in startup]
 
     MB_YESNOCANCEL = 0x03
     MB_ICONWARNING = 0x30

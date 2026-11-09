@@ -37,10 +37,18 @@ ANY_INPUT = ("Documents (*.pdf;*.doc;*.docx;*.rtf;*.txt;*.xls;*.xlsx;*.csv;"
 _LOCK = threading.RLock()
 
 
-def endpoint(fn):
+def endpoint(fn=None, *, locked=True):
+    """Expose a method to the window. `locked=False` is for calls that touch no
+    document and may wait on the network: holding the lock through a slow
+    connection would freeze every other button for as long as it took."""
+    if fn is None:
+        return functools.partial(endpoint, locked=locked)
+
     @functools.wraps(fn)
     def wrapper(self, *args, **kwargs):
         try:
+            if not locked:
+                return {"ok": True, "data": fn(self, *args, **kwargs)}
             with _LOCK:
                 return {"ok": True, "data": fn(self, *args, **kwargs)}
         except (PdfError, NoDocument, ValueError) as exc:
@@ -73,7 +81,7 @@ class Api:
         self._docs = [Session()]
         self._active = 0
         self._window = None
-        self._startup_path = None
+        self._startup_paths = []
         self._comparison = None      # last comparison result, kept for the UI
 
     def attach_window(self, window):
@@ -191,9 +199,9 @@ class Api:
 
     @endpoint
     def pending_open(self):
-        """A file passed on the command line, claimed once by the UI."""
-        path, self._startup_path = self._startup_path, None
-        return {"path": path}
+        """Files passed on the command line, claimed once by the UI."""
+        paths, self._startup_paths = self._startup_paths, []
+        return {"path": paths[0] if paths else None, "paths": paths}
 
     @endpoint
     def open_dialog(self):
@@ -793,21 +801,49 @@ class Api:
 
     # ---- update notices --------------------------------------------------
 
-    @endpoint
+    @endpoint(locked=False)
     def update_check(self, force=False):
         return updates.check(bool(force))
 
-    @endpoint
+    @endpoint(locked=False)
     def update_should_mention(self):
         return updates.should_mention()
 
-    @endpoint
+    @endpoint(locked=False)
     def update_dismiss(self, tag):
         return updates.dismiss(tag)
 
-    @endpoint
+    @endpoint(locked=False)
     def update_set_enabled(self, on):
         return updates.set_enabled(bool(on))
+
+    @endpoint(locked=False)
+    def update_download(self):
+        return updates.start_download()
+
+    @endpoint(locked=False)
+    def update_progress(self):
+        return updates.progress()
+
+    @endpoint(locked=False)
+    def update_open_page(self):
+        os.startfile(updates.RELEASES_PAGE)
+        return {"opened": updates.RELEASES_PAGE}
+
+    @endpoint
+    def update_install(self):
+        """Close, install the downloaded update, and reopen what was open."""
+        if self.unsaved():
+            raise ValueError("Save your changes before updating.")
+        # The tab in front is reopened last, so it is in front again after.
+        order = [i for i in range(len(self._docs)) if i != self._active] + [self._active]
+        reopen = [self._docs[i].path for i in order
+                  if self._docs[i].doc is not None and self._docs[i].path]
+        updates.launch_installer(reopen)
+        if self._window is not None:
+            # After this call has answered, so the window hears it worked.
+            threading.Timer(0.5, self._window.destroy).start()
+        return {"closing": True}
 
     # ---- signatures -----------------------------------------------------
 
