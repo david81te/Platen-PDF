@@ -2137,28 +2137,9 @@ const ACTIONS = {
       await refresh();
     }, 'Apply'),
   wmimage: async () => { await busyRun('Applying…', 'watermark_image', null, 0.5, true); await refresh(); },
-  numbers: () => modal('Page numbers',
-    '<div class="field"><label>Format</label><input name="template" value="Page {page} of {pages}"></div>' +
-    '<div class="field"><label>Position</label><select name="position">' +
-    ['bottom-center', 'bottom-right', 'bottom-left', 'top-center', 'top-right', 'top-left']
-      .map((p) => '<option>' + p + '</option>').join('') + '</select></div>' +
-    '<div class="field"><label>Start numbering at</label><input name="start" type="number" value="1"></div>' +
-    '<div class="field"><label><input type="checkbox" name="skip" style="width:auto"> Skip the first page</label></div>',
-    async (v) => {
-      await busyRun('Numbering…', 'stamp_text', v.template, v.position, null, 9,
-        [0.2, 0.2, 0.2], 36, parseInt(v.start, 10) || 1, v.skip);
-      await refresh();
-    }, 'Apply'),
-  headfoot: () => modal('Header / footer',
-    '<div class="field"><label>Text</label><input name="template" placeholder="Willmore Capital Partners"></div>' +
-    '<div class="field"><label>Position</label><select name="position">' +
-    ['top-left', 'top-center', 'top-right', 'bottom-left', 'bottom-center', 'bottom-right']
-      .map((p) => '<option>' + p + '</option>').join('') + '</select></div>',
-    async (v) => {
-      if (!v.template.trim()) { toast('Type the text to place first.', 'err'); return; }
-      await busyRun('Applying…', 'stamp_text', v.template, v.position, null, 9);
-      await refresh();
-    }, 'Apply'),
+  numbers: () => promptPageNumbers(),
+  headfoot: () => promptHeaderFooter(),
+  bates: () => promptBates(),
   bg: () => modal('Background colour',
     '<div class="field"><label>Colour</label><select name="tone">' +
     Object.keys(TONES).map((k) => '<option>' + k + '</option>').join('') +
@@ -2628,6 +2609,139 @@ async function confirmRestart(u) {
       }
       if (await busyRun('Closing to update…', 'update_install')) showBusy('Installing the update…');
     }, names.length ? 'Save and update' : 'Restart and update');
+}
+
+/* ---------- page numbers, headers and footers, Bates ---------- */
+
+const POSITIONS = [['top-left', 'Top left'], ['top-center', 'Top centre'], ['top-right', 'Top right'],
+  ['bottom-left', 'Bottom left'], ['bottom-center', 'Bottom centre'], ['bottom-right', 'Bottom right']];
+
+function positionSelect(name, chosen) {
+  return '<select name="' + name + '">' + POSITIONS.map(([v, label]) =>
+    '<option value="' + v + '"' + (v === chosen ? ' selected' : '') + '>' + label + '</option>').join('') +
+    '</select>';
+}
+
+const STAMP_COMMON =
+  '<div class="field2">' +
+  '<div class="field"><label>Pages (blank for all)</label><input name="pages" placeholder="e.g. 2-10"></div>' +
+  '<div class="field"><label>Text size</label><input name="size" type="number" min="5" max="24" value="9"></div>' +
+  '</div>' +
+  '<div class="field"><label><input type="checkbox" name="skip" style="width:auto"> Leave the first page out</label></div>';
+
+// Each kind replaces its own earlier stamps, so applying twice never prints a
+// second set on top; Remove takes them away and nothing else.
+function stampModal(title, kind, body, collect, noun) {
+  modal(title, body + STAMP_COMMON +
+    '<p class="hint">Applying again replaces the ' + noun + ' added before. ' +
+    '<a class="link" data-remove>Remove ' + noun + '</a></p>',
+    async (v) => {
+      const fields = collect(v);
+      if (!Object.values(fields).some((t) => t && t.trim())) {
+        toast('Type something to place first.', 'err');
+        return;
+      }
+      const r = await busyRun('Applying…', 'stamp', kind, fields, v.pages,
+        parseFloat(v.size) || 9, 36, parseInt(v.start, 10) || 1, v.skip);
+      if (r) toast((title.replace('…', '')) + ' added to ' + r.pages + ' page' + (r.pages === 1 ? '' : 's') + '.', 'ok');
+      await refresh();
+    }, 'Apply', true);
+  $('modal').querySelector('[data-remove]').onclick = async () => {
+    $('modal').querySelector('[data-x]').click();
+    const r = await busyRun('Removing…', 'stamp_remove', kind);
+    if (r) toast(r.pages ? 'Removed from ' + r.pages + ' page' + (r.pages === 1 ? '' : 's') + '.'
+      : 'There were none to remove.');
+    await refresh();
+  };
+}
+
+function promptPageNumbers() {
+  const presets = ['Page {page} of {pages}', 'Page {page}', '{page}', '{page} of {pages}', '- {page} -'];
+  stampModal('Page numbers', 'numbers',
+    '<div class="field2">' +
+    '<div class="field"><label>Style</label><select name="preset">' +
+    presets.map((p) => '<option>' + escapeHtml(p.replace(/\{page\}/g, '3').replace(/\{pages\}/g, '12')) +
+      '</option>').join('') + '</select></div>' +
+    '<div class="field"><label>Position</label>' + positionSelect('position', 'bottom-center') + '</div>' +
+    '</div>' +
+    '<div class="field2">' +
+    '<div class="field"><label>Format</label><input name="template" value="' + presets[0] + '"></div>' +
+    '<div class="field"><label>Number the first page</label><input name="start" type="number" value="1"></div>' +
+    '</div>' +
+    '<p class="hint">{page} is the number, {pages} the last one.</p>',
+    (v) => ({ [v.position]: v.template }), 'page numbers');
+  const box = $('modal');
+  box.querySelector('[name=preset]').onchange = (e) => {
+    box.querySelector('[name=template]').value = presets[e.target.selectedIndex];
+  };
+}
+
+function promptHeaderFooter() {
+  const cell = (pos, hint) => '<input name="' + pos + '" placeholder="' + hint + '">';
+  stampModal('Header and footer', 'headfoot',
+    '<label class="grouplabel">Header</label><div class="field3">' +
+    cell('top-left', 'Left') + cell('top-center', 'Centre') + cell('top-right', 'Right') + '</div>' +
+    '<label class="grouplabel">Footer</label><div class="field3">' +
+    cell('bottom-left', 'Left') + cell('bottom-center', 'Centre') + cell('bottom-right', 'Right') + '</div>' +
+    '<p class="hint">Fill in any of the six. These are replaced as you go: {page}, {pages}, ' +
+    '{date}, {file} and {title}.</p>',
+    (v) => Object.fromEntries(POSITIONS.map(([p]) => [p, v[p] || ''])), 'header and footer');
+}
+
+async function promptBates() {
+  const saved = ((await run('prefs')) || {}).bates || {};
+  const tabs = ((await run('tab_list')) || { tabs: [] }).tabs.filter((t) => t.open);
+  const all = tabs.reduce((n, t) => n + (t.page_count || 0), 0);
+  modal('Bates numbering',
+    '<div class="field2">' +
+    '<div class="field"><label>Prefix</label><input name="prefix" value="' + escapeHtml(saved.prefix || '') + '" placeholder="e.g. WCP"></div>' +
+    '<div class="field"><label>Suffix</label><input name="suffix" value="' + escapeHtml(saved.suffix || '') + '"></div>' +
+    '</div><div class="field2">' +
+    '<div class="field"><label>Start at</label><input name="start" type="number" min="0" value="' + (saved.next || 1) + '"></div>' +
+    '<div class="field"><label>Digits</label><input name="digits" type="number" min="1" max="12" value="' + (saved.digits || 6) + '"></div>' +
+    '</div><div class="field2">' +
+    '<div class="field"><label>Position</label>' + positionSelect('position', saved.position || 'bottom-right') + '</div>' +
+    '<div class="field"><label>Text size</label><input name="size" type="number" min="5" max="24" value="9"></div>' +
+    '</div>' +
+    (tabs.length > 1
+      ? '<div class="field"><label><input type="checkbox" name="all" style="width:auto"> ' +
+        'Number all ' + tabs.length + ' open documents as one set, in tab order</label></div>'
+      : '') +
+    '<p class="hint" id="bates-preview"></p>' +
+    '<p class="hint">Applying again replaces the Bates numbers added before. ' +
+    '<a class="link" data-remove>Remove Bates numbers</a></p>',
+    async (v) => {
+      const r = await busyRun('Numbering…', 'bates', v.prefix, parseInt(v.start, 10) || 0,
+        parseInt(v.digits, 10) || 6, v.suffix, v.position, parseFloat(v.size) || 9, !!v.all);
+      if (!r) return;
+      // Remembered so the next document in a production carries on from here.
+      await run('set_pref', 'bates', { prefix: v.prefix, suffix: v.suffix,
+        digits: parseInt(v.digits, 10) || 6, position: v.position, next: r.next });
+      const span = r.documents.length ? r.documents[0].first + ' to ' +
+        r.documents[r.documents.length - 1].last : '';
+      toast('Bates numbered ' + span + '.', 'ok');
+      await refresh();
+    }, 'Apply', true);
+  const box = $('modal');
+  const preview = () => {
+    const f = (name) => box.querySelector('[name=' + name + ']');
+    const n = (x) => String(Math.max(0, x)).padStart(parseInt(f('digits').value, 10) || 6, '0');
+    const label = (x) => f('prefix').value + n(x) + f('suffix').value;
+    const first = parseInt(f('start').value, 10) || 0;
+    const count = f('all') && f('all').checked ? all : (S.info ? S.info.page_count : 0);
+    $('bates-preview').textContent = count
+      ? label(first) + ' to ' + label(first + count - 1) + ' (' + count + ' pages); the next set would start at ' +
+        label(first + count) + '.'
+      : '';
+  };
+  box.querySelectorAll('input').forEach((i) => { i.oninput = preview; i.onchange = preview; });
+  preview();
+  box.querySelector('[data-remove]').onclick = async () => {
+    box.querySelector('[data-x]').click();
+    const r = await busyRun('Removing…', 'stamp_remove', 'bates');
+    if (r) toast(r.pages ? 'Removed from ' + r.pages + ' pages.' : 'There were none to remove.');
+    await refresh();
+  };
 }
 
 async function promptProps() {

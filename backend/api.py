@@ -1103,5 +1103,54 @@ class Api:
                             bool(skip_first))
 
     @endpoint
+    def stamp(self, kind, fields, pages="", size=9, margin=36, start_at=1,
+              skip_first=False):
+        """Page numbers or a header and footer: templates by position.
+
+        `pages` is typed the way people read it ("2-10"); empty means all.
+        """
+        doc = self._session.require()
+        return self._mutate(decorate.stamp, kind, dict(fields or {}),
+                            printing.parse_range(pages, doc.page_count),
+                            float(size), (0.2, 0.2, 0.2), "Helvetica", float(margin),
+                            int(start_at), bool(skip_first), None,
+                            os.path.basename(self._session.path or ""))
+
+    @endpoint
+    def stamp_remove(self, kind):
+        return self._mutate(decorate.remove_stamps, kind)
+
+    @endpoint
+    def bates(self, prefix="", start=1, digits=6, suffix="", position="bottom-right",
+              size=9, all_tabs=False):
+        """Bates-number this document, or every open one in tab order.
+
+        Numbering runs on from one document to the next, which is the point
+        of Bates numbers: a production set is numbered as one sequence.
+        """
+        order = range(len(self._docs)) if all_tabs else [self._active]
+        number = int(start)
+        if number < 0:
+            raise ValueError("Bates numbers start from zero or more.")
+        done = []
+        for index in order:
+            session = self._docs[index]
+            if session.doc is None:
+                continue
+            session.checkpoint()
+            result = decorate.stamp(
+                session.doc, "bates", {position: "{bates}"}, None, float(size),
+                (0, 0, 0), "Helvetica", 36, 1, False,
+                {"prefix": prefix, "start": number, "digits": int(digits), "suffix": suffix},
+                os.path.basename(session.path or ""))
+            session.touch()
+            done.append({"name": session.info().get("name"), "first": result.get("first"),
+                         "last": result.get("last"), "pages": result["pages"]})
+            number = result.get("next", number)
+        if not done:
+            raise NoDocument("No document is open.")
+        return {"documents": done, "next": number}
+
+    @endpoint
     def background(self, pages_list=None, color=None):
         return self._mutate(decorate.background, pages_list, _maybe_color(color), None)

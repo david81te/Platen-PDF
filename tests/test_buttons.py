@@ -69,7 +69,7 @@ class StubbedApi(Api):
 # to be a no-op on this particular file.
 MUST_CHANGE = {
     "insert", "duplicate", "merge", "cropreset", "watermark",
-    "wmimage", "numbers", "bg", "flatten", "flattenforms",
+    "wmimage", "numbers", "bg", "flatten", "flattenforms", "bates",
 }
 
 # Refusals that are the right answer on this test document, not faults:
@@ -83,7 +83,7 @@ EXPECTED_REFUSAL = {
     "ocr": "already contains real text",
     "protect": "Set an open password",
     "redactapply": "Nothing is marked",
-    "headfoot": "Type the text to place first",
+    "headfoot": "Type something to place first",
 }
 # Actions that legitimately do nothing to the open file.
 NO_CHANGE_EXPECTED = {

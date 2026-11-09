@@ -163,6 +163,11 @@ input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
 #inspector h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin-bottom: 8px; }
 .field { margin-bottom: 9px; }
 .field label { display: block; font-size: 11.5px; color: var(--muted); margin-bottom: 3px; }
+.field2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.field3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 9px; }
+.grouplabel { display: block; font-size: 11.5px; color: var(--muted); margin: 4px 0 3px; }
+a.link { color: var(--accent); cursor: pointer; }
+a.link:hover { text-decoration: underline; }
 .row { display: flex; gap: 6px; }
 .row > * { flex: 1; }
 .swatches { display: flex; flex-wrap: wrap; gap: 5px; }

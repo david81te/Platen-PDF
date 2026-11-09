@@ -20,6 +20,8 @@ FILE = os.path.join(APP_DIR, "settings.json")
 KNOWN = {
     "inspectorCollapsed": bool,
     "updateChecks": bool,
+    # Where the last Bates set stopped, so the next document carries on.
+    "bates": dict,
 }
 
 
