@@ -55,12 +55,32 @@ def _state() -> dict:
 
 
 def _save(state: dict) -> None:
+    # Written aside and swapped in, so a read at the same moment sees the old
+    # file or the new one, never a half-written one that parses as nothing.
     try:
         os.makedirs(APP_DIR, exist_ok=True)
-        with open(STATE_FILE, "w", encoding="utf-8") as handle:
+        temp = STATE_FILE + ".tmp"
+        with open(temp, "w", encoding="utf-8") as handle:
             json.dump(state, handle, indent=1)
+        os.replace(temp, STATE_FILE)
     except OSError:
         pass            # a check we cannot remember is not worth an error
+
+
+_state_lock = threading.RLock()
+
+
+def _remember(**fields) -> dict:
+    """Change some of what is remembered without losing the rest.
+
+    A check waits seconds on the network; saving back the whole state it had
+    read before undid a switch turned off, or a version skipped, meanwhile.
+    """
+    with _state_lock:
+        state = _state()
+        state.update(fields)
+        _save(state)
+        return state
 
 
 def _numbers(text: str) -> tuple:
@@ -86,10 +106,7 @@ def enabled() -> bool:
 
 
 def set_enabled(on: bool) -> dict:
-    state = _state()
-    state["enabled"] = bool(on)
-    _save(state)
-    return {"enabled": state["enabled"]}
+    return {"enabled": _remember(enabled=bool(on))["enabled"]}
 
 
 def check(force: bool = False) -> dict:
@@ -128,23 +145,20 @@ def check(force: bool = False) -> dict:
     except (urllib.error.URLError, ValueError, OSError):
         # No internet, GitHub down, rate limited: all the same to a user who
         # did not ask for this. Keep whatever was known before.
-        state["checked"] = time.time()
-        _save(state)
-        answer["checked"] = state["checked"]
+        answer["checked"] = _remember(checked=time.time())["checked"]
         return answer
 
     latest = release.get("tag_name") or ""
     asset = next((a for a in release.get("assets") or []
                   if a.get("name") == SETUP_ASSET), None)
-    state.update({
-        "checked": time.time(),
-        "latest": latest,
-        "notes": (release.get("body") or "")[:4000],
-        "asset": {"url": asset.get("browser_download_url"),
-                  "size": asset.get("size") or 0,
-                  "digest": asset.get("digest") or ""} if asset else None,
-    })
-    _save(state)
+    state = _remember(
+        checked=time.time(),
+        latest=latest,
+        notes=(release.get("body") or "")[:4000],
+        asset={"url": asset.get("browser_download_url"),
+               "size": asset.get("size") or 0,
+               "digest": asset.get("digest") or ""} if asset else None,
+    )
     answer.update({
         "latest": latest,
         "notes": state["notes"],
@@ -157,9 +171,7 @@ def check(force: bool = False) -> dict:
 
 def dismiss(tag: str) -> dict:
     """Stop mentioning this particular version; a later one still speaks up."""
-    state = _state()
-    state["dismissed"] = tag
-    _save(state)
+    _remember(dismissed=tag)
     return {"dismissed": tag}
 
 
@@ -211,6 +223,10 @@ def progress() -> dict:
 def start_download() -> dict:
     """Fetch and prove the newer release in the background; poll progress()."""
     state = _state()
+    if not (state.get("asset") or {}).get("url"):
+        # Remembered by a version that did not keep the download's details.
+        check(force=True)
+        state = _state()
     latest, asset = state.get("latest"), state.get("asset")
     if not (latest and is_newer(latest, version.VERSION)):
         raise ValueError("There is no newer version to install.")
@@ -341,8 +357,32 @@ def selftest(exe: str) -> bool:
 # a copy that will not close may be one with a question on screen.
 HELPER = r"""param([string]$Plan)
 $p = Get-Content -LiteralPath $Plan -Raw -Encoding UTF8 | ConvertFrom-Json
+function Tell([string]$text) {
+    if (-not $p.launch) { return }
+    Add-Type -AssemblyName System.Windows.Forms
+    [System.Windows.Forms.MessageBox]::Show($text, 'Platen PDF') | Out-Null
+}
+# Never stand in the install folder: a process's current folder cannot be
+# deleted or renamed, and Platen PDF started from its shortcut runs there.
+# Set-Location alone moves only PowerShell's idea of where it is; the
+# process's own folder is the one Windows holds.
+Set-Location -LiteralPath $PSScriptRoot
+[Environment]::CurrentDirectory = $PSScriptRoot
 try { Wait-Process -Id $p.wait_for -Timeout 120 -ErrorAction Stop } catch {}
-if (Get-Process -Id $p.wait_for -ErrorAction SilentlyContinue) { exit 1 }
+if (Get-Process -Id $p.wait_for -ErrorAction SilentlyContinue) {
+    Tell ("Platen PDF did not close, so the update was not installed and " +
+          "nothing was changed.`n`nClose it, then use Help > Check for updates again.")
+    exit 1
+}
+# Another window of this copy may have opened meanwhile, with work in it.
+$others = Get-Process -Name 'PlatenPDF' -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -and $_.Path.StartsWith($p.destination, [StringComparison]::OrdinalIgnoreCase) }
+if ($others) {
+    Tell ("Another Platen PDF window is open, so the update was not installed and " +
+          "nothing was changed.`n`nClose every Platen PDF window, then use " +
+          "Help > Check for updates again.")
+    exit 1
+}
 try {
     & $p.installer -Destination $p.destination -Quiet -NoShortcuts *> $p.log
     $code = $LASTEXITCODE
@@ -353,19 +393,18 @@ try {
 $exe = Join-Path $p.destination 'PlatenPDF.exe'
 if ($code -eq 0 -and (Test-Path -LiteralPath $exe)) {
     if ($p.launch) {
+        # Started where its shortcut starts it, not in this work folder.
         $files = @($p.reopen | ForEach-Object { '"' + $_ + '"' })
-        if ($files.Count) { Start-Process -FilePath $exe -ArgumentList $files }
-        else { Start-Process -FilePath $exe }
+        if ($files.Count) {
+            Start-Process -FilePath $exe -ArgumentList $files -WorkingDirectory $p.destination
+        } else {
+            Start-Process -FilePath $exe -WorkingDirectory $p.destination
+        }
     }
     exit 0
 }
-if ($p.launch) {
-    Add-Type -AssemblyName System.Windows.Forms
-    [System.Windows.Forms.MessageBox]::Show(
-        "The update could not be installed.`n`nTo install it yourself, run " +
-        "Install Platen PDF in:`n" + $p.setup + "`n`nDetails: " + $p.log,
-        'Platen PDF') | Out-Null
-}
+Tell ("The update could not be installed.`n`nTo install it yourself, run " +
+      "Install Platen PDF in:`n" + $p.setup + "`n`nDetails: " + $p.log)
 exit 1
 """
 
@@ -386,6 +425,13 @@ def launch_installer(reopen: list[str], destination: str | None = None,
     job = progress()
     if job.get("stage") != "ready":
         raise ValueError("The update has not finished downloading.")
+    if not os.path.isfile(os.path.join(job["setup"], "install.ps1")):
+        _set(stage="idle")
+        raise ValueError("The downloaded update is no longer there. Install it again "
+                         "to download it afresh.")
+    if destination is None and other_copies(target):
+        raise ValueError("Another Platen PDF window is open. Close it first, so "
+                         "nothing in it is lost, then install the update.")
     plan = {
         "wait_for": wait_for or os.getpid(),
         "installer": os.path.join(job["setup"], "install.ps1"),
@@ -407,9 +453,44 @@ def launch_installer(reopen: list[str], destination: str | None = None,
     # windows of its own; and a group of its own, so closing us does not stop it.
     hidden = _NO_WINDOW | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     breakaway = getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0)
+    # Started in the work folder: it inherits our current folder otherwise,
+    # which from the shortcut is the install folder, and Windows will not
+    # remove a folder some process is standing in. The installer emptied it
+    # and then failed, leaving no program at all.
     try:
         # Out of any job object too, so closing this process cannot take it along.
         return subprocess.Popen(command, creationflags=hidden | breakaway,
-                                close_fds=True)
+                                close_fds=True, cwd=WORK_DIR)
     except OSError:
-        return subprocess.Popen(command, creationflags=hidden, close_fds=True)
+        return subprocess.Popen(command, creationflags=hidden, close_fds=True,
+                                cwd=WORK_DIR)
+
+
+def other_copies(folder: str) -> int:
+    """How many other Platen PDF processes are running from `folder`."""
+    try:
+        import win32api
+        import win32con
+        import win32process
+    except ImportError:
+        return 0
+    base = os.path.normcase(os.path.abspath(folder)) + os.sep
+    found = 0
+    for pid in win32process.EnumProcesses():
+        if pid in (0, os.getpid()):
+            continue
+        try:
+            handle = win32api.OpenProcess(
+                win32con.PROCESS_QUERY_INFORMATION | win32con.PROCESS_VM_READ, False, pid)
+        except Exception:                              # noqa: BLE001 - not ours to see
+            continue
+        try:
+            path = win32process.GetModuleFileNameEx(handle, 0)
+        except Exception:                              # noqa: BLE001
+            path = ""
+        finally:
+            win32api.CloseHandle(handle)
+        if os.path.normcase(path).startswith(base) and \
+                os.path.basename(path).lower() == "platenpdf.exe":
+            found += 1
+    return found

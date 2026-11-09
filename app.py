@@ -5,6 +5,7 @@ import ctypes
 import json
 import os
 import sys
+import time
 
 import webview
 
@@ -100,8 +101,12 @@ def main() -> None:
     # Hand the file to a copy that is already running rather than starting a
     # second one; this is what keeps Explorer from spawning a process per file.
     if startup and single_instance.deliver(startup[0]):
+        # The running copy listens for one file at a time and opens the pipe
+        # again only once it has dealt with the last, so the rest wait a turn.
         for extra in startup[1:]:
-            single_instance.deliver(extra)
+            deadline = time.time() + 5
+            while not single_instance.deliver(extra) and time.time() < deadline:
+                time.sleep(0.1)
         raise SystemExit(0)
 
     api = Api()

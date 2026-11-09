@@ -78,6 +78,15 @@ Only a copy the installer put in place (it has `Uninstall Platen PDF.cmd`
 beside it) can update itself; the portable exe and a source run get the
 download page.
 
+**Nothing may stand in the install folder while it is replaced.** Windows
+will not delete or rename a process's current folder, and Platen PDF started
+from its shortcut runs there. The update helper inherited it once: the
+installer emptied the folder and then failed on the folder itself, leaving no
+program. The helper starts in its work folder and moves the process's own
+folder there too (`Set-Location` alone does not), and the installer builds
+the new copy beside the old one, self-tests it, then swaps - so a failure
+leaves the old copy working.
+
 **Closing a tab renumbers every tab after it.** Anything holding tab indices
 (the panes do) must shift them, or it ends up pointing at a different
 document.

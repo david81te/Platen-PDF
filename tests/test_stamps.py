@@ -151,6 +151,68 @@ check("a prefix that looks like a PDF operator is still removed cleanly",
       ([0] * 5, [1] * 5))
 
 print("")
+print("== removing never takes the page's own content ==")
+# {file} on a document never saved fills to nothing. The commit then added no
+# stream, the page's own content was marked as the footer instead, and
+# Remove erased the whole page.
+doc = fitz.open()
+doc.new_page().insert_text((72, 100), "Precious body text", fontsize=12)
+decorate.stamp(doc, "headfoot", {"bottom-left": "{file}", "top-left": "Kept header"})
+decorate.remove_stamps(doc, "headfoot")
+text = fitz.open(stream=doc.tobytes(), filetype="pdf")[0].get_text()
+check("a field that fills to nothing, then Remove: body kept", "Precious body text" in text, True)
+check("  and the header that was there is gone", "Kept header" in text, False)
+doc = fitz.open()
+doc.new_page().insert_text((72, 100), "Precious body text", fontsize=12)
+decorate.stamp(doc, "headfoot", {"top-left": "Earlier header"})
+try:
+    decorate.stamp(doc, "headfoot", {"top-left": "{file}"})
+    check("a stamp that comes out entirely empty is refused", "stamped", "refused")
+except ValueError as exc:
+    check("a stamp that comes out entirely empty is refused", "until it is saved" in str(exc), True)
+text = fitz.open(stream=doc.tobytes(), filetype="pdf")[0].get_text()
+check("  before taking the earlier header away", "Earlier header" in text, True)
+decorate.remove_stamps(doc, "headfoot")
+check("  and Remove after it leaves the body",
+      "Precious body text" in fitz.open(stream=doc.tobytes(), filetype="pdf")[0].get_text(), True)
+
+# A page whose content leaves a q open makes the commit add a Q stream of its
+# own before the text. Only the text is the stamp.
+doc = fitz.open()
+page = doc.new_page()
+page.insert_text((72, 100), "x", fontsize=12)
+doc.update_stream(page.get_contents()[0],
+                  b"q BT /helv 12 Tf 72 692 Td (Unbalanced body) Tj ET")
+page.insert_font(fontname="helv")
+decorate.stamp(doc, "numbers", {"bottom-center": "Page {page}"})
+marked = [x for x in page.get_contents() if b"PlatenStamp" in (doc.xref_stream(x) or b"")]
+check("on an unbalanced page only the text stream is marked",
+      [doc.xref_stream(x).count(b"BT") for x in marked], [1])
+decorate.remove_stamps(doc, "numbers")
+text = fitz.open(stream=doc.tobytes(), filetype="pdf")[0].get_text()
+check("  and Remove leaves the body", ("Unbalanced body" in text, "Page 1" in text), (True, False))
+
+# Any redaction on the page - an edit, a find and replace - rewrites its
+# streams with literal strings, and a pattern match then took the "EMC" in
+# "(Prepared by EMC Labs ...)" for the end of the stamp, cutting the stream.
+from backend import textedit  # noqa: E402
+doc = fitz.open()
+doc.new_page().insert_text((72, 300), "Body line that will be edited", fontsize=12)
+decorate.stamp(doc, "headfoot", {"top-left": "Prepared by EMC Labs for review",
+                                 "bottom-right": "Confidential"})
+span = next(s for b in textedit.layout(doc[0])["blocks"] for l in b["lines"]
+            for s in l["spans"] if "Body line" in s["text"])
+textedit.edit_span(doc, span["id"], "Body line, edited")
+fitz.TOOLS.mupdf_warnings()                        # clear what came before
+decorate.remove_stamps(doc, "headfoot")
+reread = fitz.open(stream=doc.tobytes(), filetype="pdf")
+text = reread[0].get_text()
+check("a header saying EMC is removed whole after an edit",
+      ("EMC" in text, "Labs" in text, "Confidential" in text), (False, False, False))
+check("  the edited body is kept", "Body line, edited" in text, True)
+check("  and MuPDF finds nothing broken", fitz.TOOLS.mupdf_warnings(), "")
+
+print("")
 print("== Bates across open documents ==")
 api = Api()
 paths = []
@@ -174,6 +236,14 @@ check("both documents are marked changed",
 api.undo()
 check("undo takes it back from the document in front",
       [len(f) for _, f in seen(api._session.doc, "WCP")], [0, 0])
+
+# An empty choice of pages means all of them; a mistyped one must not.
+for typed in ("7-9", "abc"):
+    result = api.stamp("numbers", {"bottom-center": "{page}"}, typed)
+    check("pages %r on a 2-page document is refused" % typed,
+          (result["ok"], "None of those pages" in result.get("error", "")), (False, True))
+check("  and nothing was stamped", [len(f) for _, f in seen(api._session.doc, "")],
+      lambda counts: all(c == 1 for c in counts))
 
 print("")
 print("RESULT:", "PASS" if not fails else "FAIL")

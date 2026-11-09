@@ -76,6 +76,29 @@ print("  PASS  error path                  " if err.get("ok") is False else "  F
 if err.get("ok") is not False:
     fails.append(("error path", err))
 
+# A password arrives after its question. If another document opened in front
+# meanwhile - several reopening after an update - the protected one used to
+# land on top of it, closing it.
+import tempfile  # noqa: E402
+import pymupdf as fitz  # noqa: E402
+folder = tempfile.mkdtemp(prefix="platen-api-")
+locked, plain = os.path.join(folder, "locked.pdf"), os.path.join(folder, "plain.pdf")
+made = fitz.open()
+made.new_page().insert_text((72, 72), "secret")
+made.save(locked, encryption=fitz.PDF_ENCRYPT_AES_256, user_pw="pw", owner_pw="pw")
+made = fitz.open()
+made.new_page().insert_text((72, 72), "plain")
+made.save(plain)
+fresh = Api()
+asked = fresh.open_path(locked)
+fresh.open_path(plain)
+fresh.open_path(locked, "pw")
+names = sorted(t["name"] for t in fresh.tab_list()["data"]["tabs"] if t["open"])
+ok_tabs = asked["data"].get("needs_password") and names == ["locked.pdf", "plain.pdf"]
+print("  %s  password after another opened  %r" % ("PASS" if ok_tabs else "FAIL", names))
+if not ok_tabs:
+    fails.append(("password after another opened", names))
+
 print("\nRESULT:", "PASS" if not fails else "FAIL (%d)" % len(fails))
 for f in fails:
     print("  ", f)

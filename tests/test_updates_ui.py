@@ -96,6 +96,42 @@ def drive(window):
           js("!!document.querySelector('#updnote [data-skip]')"), False)
     js("document.querySelector('#updnote [data-later]').click()")
 
+    print("== installing: one download, one question ==")
+    # A stand-in download that moves through its stages on a timer.
+    def fake_start():
+        def advance():
+            for stage, done in (("downloading", 40), ("downloading", 80), ("checking", 100),
+                                ("ready", 100)):
+                time.sleep(0.8)
+                updates._set(stage=stage, done=done, total=100)
+        updates._set(stage="downloading", done=0, total=100, version="99.0.0")
+        threading.Thread(target=advance, daemon=True).start()
+        return updates.progress()
+    real_start = updates.start_download
+    updates.start_download = fake_start
+    try:
+        u = "{latest: '99.0.0', current: %r, installable: true}" % version.VERSION
+        js("startUpdate(%s)" % u)
+        time.sleep(1.2)
+        check("progress is shown", js("(document.getElementById('upd-text') || {}).textContent"),
+              lambda t: t and t.startswith("Downloading"))
+        # Hidden, then asked again: the same download comes back into view
+        # rather than a second one starting to watch it.
+        js("document.querySelector('#modal [data-x]').click()")
+        js("startUpdate(%s)" % u)
+        time.sleep(4.5)
+        check("when ready it asks once whether to restart",
+              js("document.querySelector('#modal h2') && document.querySelector('#modal h2').textContent"),
+              "Ready to update")
+        check("and no second copy of the question waits behind it",
+              js("document.getElementById('updnote') ? document.querySelector('#updnote b').textContent : null"),
+              None)
+        js("document.querySelector('#modal [data-x]').click()")
+        time.sleep(0.3)
+    finally:
+        updates.start_download = real_start
+        updates._set(stage="idle")
+
     print("== Help > Check for updates ==")
     check("is in the Help menu",
           js("!!document.querySelector('.menu[data-menu=help] li[data-act=updates]')"), True)

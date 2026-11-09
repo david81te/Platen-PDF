@@ -228,6 +228,11 @@ class Api:
                 return {**self._session.info(), "already_open": True,
                         "tabs": self._tab_state()}
             self._slot_for_new_document()
+        elif self._session.doc is not None and self._tab_showing(path) != self._active:
+            # The password arrives after its question; if another document has
+            # opened in front meanwhile - several reopening after an update -
+            # this one must not land on top of it.
+            self._slot_for_new_document()
         return self._open_any(path, password)
 
     def _tab_showing(self, path) -> int | None:
@@ -1110,8 +1115,12 @@ class Api:
         `pages` is typed the way people read it ("2-10"); empty means all.
         """
         doc = self._session.require()
-        return self._mutate(decorate.stamp, kind, dict(fields or {}),
-                            printing.parse_range(pages, doc.page_count),
+        chosen = printing.parse_range(pages, doc.page_count)
+        if pages and str(pages).strip() and not chosen:
+            # An empty choice means every page, which is not what a typo meant.
+            raise ValueError("None of those pages are in this document, which has %d."
+                             % doc.page_count)
+        return self._mutate(decorate.stamp, kind, dict(fields or {}), chosen,
                             float(size), (0.2, 0.2, 0.2), "Helvetica", float(margin),
                             int(start_at), bool(skip_first), None,
                             os.path.basename(self._session.path or ""))

@@ -133,11 +133,18 @@ import hashlib  # noqa: E402
 import http.server  # noqa: E402
 import json  # noqa: E402
 import subprocess  # noqa: E402
+import shutil  # noqa: E402
 import tempfile  # noqa: E402
 import threading  # noqa: E402
 import zipfile  # noqa: E402
 
+# Like the real one, it moves the old copy aside first - which Windows
+# refuses while any process is standing in that folder.
 FAKE_INSTALLER = r"""param([string]$Destination, [switch]$NoShortcuts, [switch]$Quiet)
+$ErrorActionPreference = 'Stop'
+if (Test-Path -LiteralPath $Destination) {
+    Rename-Item -LiteralPath $Destination -NewName ((Split-Path $Destination -Leaf) + '.old')
+}
 New-Item -ItemType Directory -Force $Destination | Out-Null
 Set-Content -LiteralPath (Join-Path $Destination 'PlatenPDF.exe') -Value 'stub'
 @{ destination = $Destination; quiet = [bool]$Quiet; noshortcuts = [bool]$NoShortcuts;
@@ -251,6 +258,19 @@ try:
           lambda e: "somewhere unexpected" in e)
     updates._allowed = lambda url: url.startswith(base)
 
+    # A newer version remembered by an older copy, which kept no download
+    # details: asked again rather than refused for want of an installer.
+    state = updates._state()
+    state.update({"latest": "99.0.0", "asset": None, "checked": time.time()})
+    updates._save(state)
+    try:
+        updates.start_download()
+        check("remembered without download details: GitHub is asked again", "started", "asked")
+    except ValueError as exc:
+        check("remembered without download details: GitHub is asked again",
+              ("no installer" not in str(exc), bool((updates._state().get("asset") or {}).get("url"))),
+              (True, True))
+
     state = updates._state()
     state["latest"] = version.VERSION
     updates._save(state)
@@ -269,11 +289,23 @@ try:
 
     # The hand-over: the helper must wait for the old copy to exit, then run
     # the release's installer quietly into the install folder.
+    # Started from its shortcut, Platen PDF stands in its install folder; the
+    # helper used to inherit that, and the installer could then neither
+    # delete nor move the folder - after emptying it.
     job = attempt("good.zip", good)
     destination = os.path.join(scratch, "installed")
-    leaving = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(3)"])
-    helper = updates.launch_installer([__file__], destination=destination,
-                                      wait_for=leaving.pid, launch=False)
+    os.makedirs(destination)
+    with open(os.path.join(destination, "PlatenPDF.exe"), "w") as handle:
+        handle.write("old copy")
+    leaving = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(3)"],
+                               cwd=destination)
+    here = os.getcwd()
+    os.chdir(destination)
+    try:
+        helper = updates.launch_installer([__file__], destination=destination,
+                                          wait_for=leaving.pid, launch=False)
+    finally:
+        os.chdir(here)
     leaving.wait()
     gone = time.time()
     code = helper.wait(timeout=120)
@@ -292,6 +324,32 @@ try:
     with open(os.path.join(updates.WORK_DIR, "plan.json"), encoding="utf-8") as handle:
         plan = json.load(handle)
     check("the open documents are passed on to reopen", plan["reopen"], [__file__])
+    check("the old copy was moved aside, not left half deleted",
+          os.path.isfile(os.path.join(destination + ".old", "PlatenPDF.exe")), True)
+
+    # Another window of the same install may hold unsaved work, so its
+    # presence stops the update - both before closing and in the helper.
+    stand_in = os.path.join(destination, "PlatenPDF.exe")
+    shutil.copy(os.path.join(os.environ["WINDIR"], "System32", "PING.EXE"), stand_in)
+    other = subprocess.Popen([stand_in, "-n", "30", "127.0.0.1"],
+                             stdout=subprocess.DEVNULL, creationflags=0x08000000)
+    try:
+        time.sleep(0.5)
+        check("another running window of this install is found",
+              updates.other_copies(destination), 1)
+        check("but not one from somewhere else",
+              updates.other_copies(os.path.join(scratch, "elsewhere")), 0)
+        os.remove(marker)
+        job = attempt("good.zip", good)
+        leaving = subprocess.Popen([sys.executable, "-c", "pass"])
+        helper = updates.launch_installer([], destination=destination,
+                                          wait_for=leaving.pid, launch=False)
+        check("the helper will not install over another open window",
+              helper.wait(timeout=120), 1)
+        check("  and ran no installer", os.path.isfile(marker), False)
+    finally:
+        other.kill()
+        other.wait()
 finally:
     server.shutdown()
     updates.WORK_DIR, updates._allowed, updates.selftest, updates.file_version = saved

@@ -2563,17 +2563,34 @@ async function checkUpdatesNow() {
   }
 }
 
+let updatePolling = false;
+
 async function startUpdate(u) {
   // A copy that was not installed (the portable file, or a run from source)
   // cannot replace itself, so it gets the download page instead.
   if (!u.installable) { await run('update_open_page'); return; }
   if (!await run('update_download')) return;
-  const close = modal('Updating to ' + escapeHtml(bare(u.latest)),
+  showUpdateProgress(u);
+  // One poller at a time: asking again while it runs only brings the
+  // progress back into view, rather than a second loop that later puts
+  // up its own copy of every question.
+  if (updatePolling) return;
+  updatePolling = true;
+  try { await pollUpdate(u); } finally { updatePolling = false; }
+}
+
+let closeUpdateProgress = () => {};
+
+function showUpdateProgress(u) {
+  closeUpdateProgress = modal('Updating to ' + escapeHtml(bare(u.latest)),
     '<p id="upd-text">Downloading…</p><div class="updbar"><i id="upd-bar"></i></div>' +
     '<p class="hint">Keep working if you like. Nothing changes until you choose to restart.</p>',
     null);
   const hide = $('modal').querySelector('[data-x]');
   if (hide) hide.textContent = 'Hide';
+}
+
+async function pollUpdate(u) {
   for (;;) {
     await new Promise((r) => setTimeout(r, 400));
     const p = await run('update_progress');
@@ -2589,13 +2606,13 @@ async function startUpdate(u) {
       text.textContent = 'Checking the new version…';
       bar.style.width = '100%';
     } else if (p.stage === 'failed') {
-      if (text) close();
+      if (text) closeUpdateProgress();
       toast(p.error || 'The update could not be prepared.', 'err');
       return;
     } else if (p.stage === 'ready') {
       // Still open means they are waiting on it; hidden means they went back
       // to work, so wait to be asked rather than take over the screen.
-      if (text) { close(); confirmRestart(u); } else showUpdateNote(u, true);
+      if (text) { closeUpdateProgress(); confirmRestart(u); } else showUpdateNote(u, true);
       return;
     }
   }
@@ -2623,6 +2640,13 @@ async function confirmRestart(u) {
 }
 
 /* ---------- page numbers, headers and footers, Bates ---------- */
+
+// A number typed in a box, or the fallback when it is not one. Zero is a
+// number: `|| 1` turned "number the first page 0" into 1.
+const whole = (text, fallback) => {
+  const n = parseInt(text, 10);
+  return Number.isNaN(n) ? fallback : n;
+};
 
 const POSITIONS = [['top-left', 'Top left'], ['top-center', 'Top centre'], ['top-right', 'Top right'],
   ['bottom-left', 'Bottom left'], ['bottom-center', 'Bottom centre'], ['bottom-right', 'Bottom right']];
@@ -2653,7 +2677,7 @@ function stampModal(title, kind, body, collect, noun) {
         return;
       }
       const r = await busyRun('Applying…', 'stamp', kind, fields, v.pages,
-        parseFloat(v.size) || 9, 36, parseInt(v.start, 10) || 1, v.skip);
+        parseFloat(v.size) || 9, 36, whole(v.start, 1), v.skip);
       if (r) toast((title.replace('…', '')) + ' added to ' + r.pages + ' page' + (r.pages === 1 ? '' : 's') + '.', 'ok');
       await refresh();
     }, 'Apply', true);
@@ -2722,8 +2746,8 @@ async function promptBates() {
     '<p class="hint">Applying again replaces the Bates numbers added before. ' +
     '<a class="link" data-remove>Remove Bates numbers</a></p>',
     async (v) => {
-      const r = await busyRun('Numbering…', 'bates', v.prefix, parseInt(v.start, 10) || 0,
-        parseInt(v.digits, 10) || 6, v.suffix, v.position, parseFloat(v.size) || 9, !!v.all);
+      const r = await busyRun('Numbering…', 'bates', v.prefix, whole(v.start, 1),
+        whole(v.digits, 6), v.suffix, v.position, parseFloat(v.size) || 9, !!v.all);
       if (!r) return;
       // Remembered so the next document in a production carries on from here.
       await run('set_pref', 'bates', { prefix: v.prefix, suffix: v.suffix,
