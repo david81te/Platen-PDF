@@ -52,3 +52,17 @@ if ($log -notmatch 'SELFTEST: PASS') {
     Write-Host "The build did not pass its self-test." -ForegroundColor Red
     exit 1
 }
+
+# Every feature that needs a bundled library, run inside the build. The test
+# suites run from source, so they cannot see a library the build left out;
+# build_trim.py leaves things out on purpose, and this is what keeps it honest.
+# The Word converter logs to stderr, and under "Stop" PowerShell 5.1 turns a
+# native command's stderr into a terminating error once it is redirected.
+$ErrorActionPreference = "Continue"
+$smoke = (& $out --smoketest 2>&1 | ForEach-Object { "$_" } | Out-String).Trim()
+$ErrorActionPreference = "Stop"
+Write-Host $smoke
+if ($smoke -notmatch 'SMOKETEST: PASS') {
+    Write-Host "A feature does not work in the build; see above." -ForegroundColor Red
+    exit 1
+}

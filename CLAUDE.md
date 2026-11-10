@@ -87,6 +87,15 @@ folder there too (`Set-Location` alone does not), and the installer builds
 the new copy beside the old one, self-tests it, then swaps - so a failure
 leaves the old copy working.
 
+**The build leaves things out on purpose** (`build_trim.py`, read by both
+spec files): OpenCV's video reader, Pillow's AVIF plugin, MuPDF's developer
+files, onnxruntime's conversion tools, lxml's objectify/html, test suites and
+source files - about 24 MB of the download. The test suites run from source
+and cannot see what the build is missing, so `build.ps1` runs `PlatenPDF.exe
+--smoketest`, which exercises every library-backed feature inside the build
+and refuses it if one fails. A feature that works from source but not
+installed: look in `build_trim.py` first, and add it to the smoke test.
+
 **Closing a tab renumbers every tab after it.** Anything holding tab indices
 (the panes do) must shift them, or it ends up pointing at a different
 document.

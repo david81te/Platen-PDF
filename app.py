@@ -57,9 +57,108 @@ def selftest() -> int:
     return 0 if ok else 1
 
 
+def smoketest() -> int:
+    """Every feature that leans on a bundled library, run inside the build.
+
+    The test suites run from source, so a build that leaves out something a
+    feature needs - which is what trimming the download risks - passes all of
+    them and fails only for the person using it. This runs each of those
+    features in the packaged program and reads back what it made.
+    """
+    import tempfile
+    import zipfile
+
+    import pymupdf as fitz
+    from backend import convert, decorate, textedit
+
+    out = tempfile.mkdtemp(prefix="platen-smoke-")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 80), "Quarterly summary for Willmore Capital", fontsize=14)
+    for row, cells in enumerate((("Item", "Amount", "Due"), ("Deposit", "$100,000", "Jan 15"),
+                                 ("Balance", "$4,150,000", "Mar 31"))):
+        for col, text in enumerate(cells):
+            page.insert_text((72 + 160 * col, 140 + 20 * row), text, fontsize=11)
+    for x in (66, 226, 386, 546):
+        page.draw_line((x, 124), (x, 186))
+    for y in (124, 146, 166, 186):
+        page.draw_line((66, y), (546, y))
+    arial = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts", "arial.ttf")
+    if os.path.isfile(arial):                 # an embedded TrueType font, for fontTools
+        page.insert_font(fontname="F0", fontfile=arial)
+        page.insert_text((72, 240), "Embedded font line to edit", fontname="F0", fontsize=12)
+    doc = fitz.open(stream=doc.tobytes(), filetype="pdf")
+
+    def zipped(path, member, needle):
+        with zipfile.ZipFile(path) as bundle:
+            names = [n for n in bundle.namelist() if n.startswith(member)]
+            return any(needle.encode() in bundle.read(n) for n in names)
+
+    checks = []
+
+    def run(label, action):
+        try:
+            ok = bool(action())
+            checks.append(ok)
+            print("  %-34s %s" % (label, "ok" if ok else "FAILED"))
+        except Exception as exc:                             # noqa: BLE001
+            checks.append(False)
+            print("  %-34s FAILED %s: %s" % (label, type(exc).__name__, exc))
+
+    target = lambda name: os.path.join(out, name)                     # noqa: E731
+    run("Word (pdf2docx, opencv, lxml)", lambda: convert.to_docx(doc, target("a.docx")) is not None
+        and zipped(target("a.docx"), "word/document.xml", "Willmore"))
+    run("Excel (openpyxl)", lambda: convert.to_xlsx(doc, target("a.xlsx")) is not None
+        and zipped(target("a.xlsx"), "xl/", "Deposit"))
+    run("PowerPoint (python-pptx)", lambda: convert.to_pptx(doc, target("a.pptx")) is not None
+        and zipped(target("a.pptx"), "ppt/slides/", "Willmore"))
+    run("images (Pillow)", lambda: convert.to_images(doc, out, 72, "png")
+        and any(n.endswith(".png") for n in os.listdir(out)))
+    run("plain text", lambda: convert.to_text(doc, target("a.txt")) is not None
+        and "Willmore" in open(target("a.txt"), encoding="utf-8").read())
+    run("compress (pikepdf)", lambda: convert.compress(doc, target("small.pdf"), "high")
+        and "Willmore" in fitz.open(target("small.pdf"))[0].get_text())
+
+    def edit():
+        copy = fitz.open(stream=doc.tobytes(), filetype="pdf")
+        # One word: Arial's spaces read back as no-break spaces.
+        span = next(s for b in textedit.layout(copy[0])["blocks"] for l in b["lines"]
+                    for s in l["spans"] if "Embedded" in s["text"])
+        textedit.edit_span(copy, span["id"], "Embedded font line, edited")
+        return "edited" in fitz.open(stream=copy.tobytes(), filetype="pdf")[0].get_text()
+    run("edit text (fontTools)", edit)
+
+    def stamp():
+        copy = fitz.open(stream=doc.tobytes(), filetype="pdf")
+        decorate.stamp(copy, "numbers", {"bottom-center": "Page {page} of {pages}"})
+        return "Page 1 of 1" in copy[0].get_text()
+    run("page numbers", stamp)
+
+    def recognise():
+        flat = fitz.open()
+        image = flat.new_page(width=420, height=160)
+        image.insert_image(image.rect, pixmap=doc[0].get_pixmap(
+            matrix=fitz.Matrix(3, 3), clip=fitz.Rect(60, 60, 480, 100)))
+        convert.ocr(flat)
+        return "Willmore" in flat[0].get_text()
+    run("OCR (onnxruntime, opencv)", recognise)
+
+    def secure():
+        import ssl
+        import truststore
+        return ssl.SSLContext is truststore.SSLContext
+    run("HTTPS through Windows", secure)
+
+    ok = all(checks)
+    print("SMOKETEST:", "PASS" if ok else "FAIL")
+    return 0 if ok else 1
+
+
 def main() -> None:
     if "--selftest" in sys.argv:
         raise SystemExit(selftest())
+    if "--smoketest" in sys.argv:
+        raise SystemExit(smoketest())
 
     if "--register" in sys.argv:
         try:

@@ -1,5 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
+import sys
+
 from PyInstaller.utils.hooks import collect_all, collect_data_files
+
+sys.path.insert(0, SPECPATH)
+import build_trim  # noqa: E402  - what is left out of the download
 
 datas = [("ui", "ui"), ("assets/platenpdf.ico", "assets")]
 binaries = []
@@ -18,6 +23,7 @@ for package in ("webview", "pymupdf", "pdf2docx", "docx", "pptx", "openpyxl",
     datas += extra_datas
     binaries += extra_binaries
     hiddenimports += extra_hidden
+hiddenimports = [name for name in hiddenimports if build_trim.wanted_module(name)]
 
 a = Analysis(
     ["app.py"],
@@ -28,9 +34,10 @@ a = Analysis(
     hookspath=[],
     runtime_hooks=[],
     excludes=["tkinter", "matplotlib", "scipy", "pandas", "PyQt5", "PySide2",
-              "IPython", "notebook", "pytest"],
+              "IPython", "notebook", "pytest", *build_trim.MODULES],
     noarchive=False,
 )
+build_trim.trim(a)
 pyz = PYZ(a.pure)
 
 exe = EXE(
