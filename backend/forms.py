@@ -228,7 +228,14 @@ def add_field(doc: fitz.Document, page_no: int, kind: str, rect: list[float],
         widget.field_value = value or ""
     if required:
         widget.field_flags = widget.field_flags | 2
-    page.add_widget(widget)
+    made = page.add_widget(widget)
+    if page.rotation:
+        # A field draws its text along the page as stored, so on a turned
+        # page it read sideways. /MK /R turns it with the page; the
+        # appearance is then redrawn to match, and every later edit keeps it.
+        doc.xref_set_key(made.xref, "MK/R", str(page.rotation))
+        made = next(w for w in page.widgets() if w.xref == made.xref)
+        made.update()
     return {"name": widget.field_name, "kind": kind}
 
 

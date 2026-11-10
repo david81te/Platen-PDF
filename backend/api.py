@@ -71,6 +71,46 @@ def _maybe_color(value):
     return None if value is None else _color(value)
 
 
+def _turn(geometry, matrix):
+    """Rects ([x0, y0, x1, y1]) and points ([x, y]), however nested, through `matrix`."""
+    if isinstance(geometry, (list, tuple)):
+        if len(geometry) in (2, 4) and all(isinstance(v, (int, float)) for v in geometry):
+            if len(geometry) == 4:
+                box = fitz.Rect(geometry) * matrix
+                return [box.x0, box.y0, box.x1, box.y1]
+            point = fitz.Point(geometry) * matrix
+            return [point.x, point.y]
+        return [_turn(part, matrix) for part in geometry]
+    return geometry
+
+
+# The window draws a page as it is shown, turned by its /Rotate; PyMuPDF
+# places and reports everything in the page's unrotated coordinates. On a
+# turned page - most scanned landscape pages - every highlight, shape, note,
+# field, link and signature therefore landed somewhere other than where it was
+# drawn, and every search hit was highlighted somewhere else. So geometry is
+# turned here, at the boundary, both ways, and the modules behind it keep
+# working in the coordinates PyMuPDF uses. The text layout does the same.
+
+def _page_geometry(page: fitz.Page, geometry):
+    """From the window's coordinates to the page's."""
+    return _turn(geometry, page.derotation_matrix) if page.rotation else geometry
+
+
+def _shown_geometry(page: fitz.Page, geometry):
+    """From the page's coordinates to the window's."""
+    return _turn(geometry, page.rotation_matrix) if page.rotation else geometry
+
+
+def _shown_items(page: fitz.Page, items, *keys):
+    """Turn the named geometry fields of each dict in a listing."""
+    for item in items:
+        for key in keys:
+            if item.get(key):
+                item[key] = _shown_geometry(page, item[key])
+    return items
+
+
 class Api:
     # pywebview walks the public attributes of this object to build its JS
     # bridge. Anything public that points at the native window recurses through
@@ -489,7 +529,11 @@ class Api:
 
     @endpoint
     def search(self, query, match_case=False):
-        return self._session.search(query, bool(match_case))
+        found = self._session.search(query, bool(match_case))
+        doc = self._session.require()
+        for hit in found.get("hits", []):
+            hit["rect"] = _shown_geometry(doc[hit["page"]], hit["rect"])
+        return found
 
     @endpoint
     def outline(self):
@@ -531,7 +575,8 @@ class Api:
     def delete_text(self, index, rect):
         doc = self._session.require()
         self._session.checkpoint()
-        result = textedit.delete_region(doc, int(index), rect)
+        result = textedit.delete_region(doc, int(index),
+                                        _page_geometry(doc[int(index)], rect))
         self._session.touch()
         return result
 
@@ -540,7 +585,8 @@ class Api:
                  align="left", bold=False, italic=False):
         doc = self._session.require()
         self._session.checkpoint()
-        result = textedit.add_text(doc, int(index), rect, text, font_name=font,
+        result = textedit.add_text(doc, int(index), _page_geometry(doc[int(index)], rect),
+                                   text, font_name=font,
                                    size=float(size), color=_color(color),
                                    align=align, bold=bool(bold), italic=bool(italic))
         self._session.touch()
@@ -557,6 +603,9 @@ class Api:
         return result
 
     # ---- pages ----------------------------------------------------------
+
+    def _page(self, index, tab=None) -> fitz.Page:
+        return self._session_for(tab).require()[int(index)]
 
     def _mutate(self, fn, *args, **kwargs):
         doc = self._session.require()
@@ -591,7 +640,8 @@ class Api:
 
     @endpoint
     def page_crop(self, index, rect):
-        return self._mutate(pages.crop, int(index), rect)
+        return self._mutate(pages.crop, int(index),
+                            _page_geometry(self._page(index), rect))
 
     @endpoint
     def page_reset_crop(self, index):
@@ -650,36 +700,42 @@ class Api:
     def annot_markup(self, index, kind, rects, color=None, author="", note="",
                      snap=True):
         default = (1.0, 0.92, 0.23) if kind == "highlight" else (0.85, 0.1, 0.1)
-        return self._mutate(annots.add_markup, int(index), kind, rects,
+        return self._mutate(annots.add_markup, int(index), kind,
+                            _page_geometry(self._page(index), rects),
                             _color(color, default), author, note, bool(snap))
 
     @endpoint
     def annot_note(self, index, point, text, author=""):
-        return self._mutate(annots.add_note, int(index), point, text, author)
+        return self._mutate(annots.add_note, int(index),
+                            _page_geometry(self._page(index), point), text, author)
 
     @endpoint
     def annot_textbox(self, index, rect, text, size=11, color=None, fill=None,
                       border=None, align=0):
-        return self._mutate(annots.add_textbox, int(index), rect, text,
+        return self._mutate(annots.add_textbox, int(index),
+                            _page_geometry(self._page(index), rect), text,
                             float(size), _color(color), _maybe_color(fill),
                             _maybe_color(border), int(align))
 
     @endpoint
     def annot_shape(self, index, kind, points, color=None, fill=None,
                     width=1.5, opacity=1.0):
-        return self._mutate(annots.add_shape, int(index), kind, points,
+        return self._mutate(annots.add_shape, int(index), kind,
+                            _page_geometry(self._page(index), points),
                             _color(color, (0.85, 0.1, 0.1)), _maybe_color(fill),
                             float(width), float(opacity))
 
     @endpoint
     def annot_ink(self, index, strokes, color=None, width=2.0, opacity=1.0):
-        return self._mutate(annots.add_ink, int(index), strokes,
+        return self._mutate(annots.add_ink, int(index),
+                            _page_geometry(self._page(index), strokes),
                             _color(color, (0.85, 0.1, 0.1)), float(width),
                             float(opacity))
 
     @endpoint
     def annot_stamp(self, index, rect, label="approved", color=None):
-        return self._mutate(annots.add_stamp, int(index), rect, label,
+        return self._mutate(annots.add_stamp, int(index),
+                            _page_geometry(self._page(index), rect), label,
                             _color(color, (0.1, 0.5, 0.15)))
 
     @endpoint
@@ -687,15 +743,20 @@ class Api:
         chosen = self._ask_open(types=IMAGE_TYPES)
         if not chosen:
             return {"cancelled": True}
-        return self._mutate(annots.add_image, int(index), rect, chosen[0])
+        return self._mutate(annots.add_image, int(index),
+                            _page_geometry(self._page(index), rect), chosen[0])
 
     @endpoint
     def annot_list(self, index, tab=None):
-        return annots.listing(self._session_for(tab).require(), int(index))
+        return _shown_items(self._page(index, tab),
+                            annots.listing(self._session_for(tab).require(), int(index)),
+                            "rect", "points")
 
     @endpoint
     def annot_update(self, index, annot_id, rect=None, content=None, color=None,
                      fill=None, opacity=None, author=None):
+        if rect is not None:
+            rect = _page_geometry(self._page(index), rect)
         return self._mutate(annots.update, int(index), int(annot_id), rect, content,
                             _maybe_color(color), _maybe_color(fill),
                             None if opacity is None else float(opacity), author)
@@ -703,7 +764,11 @@ class Api:
     @endpoint
     def annot_line_points(self, index, annot_id, points):
         """Reshape a line or arrow. The annotation is rebuilt, so the id changes."""
-        return self._mutate(annots.update_line, int(index), int(annot_id), points)
+        result = self._mutate(annots.update_line, int(index), int(annot_id),
+                              _page_geometry(self._page(index), points))
+        if result.get("points"):
+            result["points"] = _shown_geometry(self._page(index), result["points"])
+        return result
 
     @endpoint
     def annot_delete(self, index, annot_id):
@@ -717,11 +782,14 @@ class Api:
 
     @endpoint
     def link_list(self, index):
+        # Already as shown: MuPDF reports links through the page's turn,
+        # though it takes them, like everything else, unturned.
         return annots.links(self._session.require(), int(index))
 
     @endpoint
     def link_add(self, index, rect, uri="", target_page=None):
-        return self._mutate(annots.add_link, int(index), rect, uri,
+        return self._mutate(annots.add_link, int(index),
+                            _page_geometry(self._page(index), rect), uri,
                             None if target_page is None else int(target_page))
 
     @endpoint
@@ -893,8 +961,15 @@ class Api:
     def sig_place(self, index, identifier, rect, date_text="", flatten=False):
         doc = self._session.require()
         self._session.checkpoint()
-        result = signatures.place_dated(doc, int(index), identifier, rect,
-                                        date_text, flatten=bool(flatten))
+        page = doc[int(index)]
+        # The date goes to the right of the signature as the page is shown.
+        beside = [rect[2] + 8, rect[1], rect[2] + 160, rect[3]]
+        result = signatures.place_dated(doc, int(index), identifier,
+                                        _page_geometry(page, rect), date_text,
+                                        date_rect=_page_geometry(page, beside),
+                                        flatten=bool(flatten))
+        if result.get("rect"):
+            result["rect"] = _shown_geometry(doc[int(index)], result["rect"])
         self._session.touch()
         if date_text:
             self._session.reload()
@@ -904,8 +979,11 @@ class Api:
 
     @endpoint
     def form_list(self, index=None, tab=None):
-        return forms.listing(self._session_for(tab).require(),
-                             None if index is None else int(index))
+        doc = self._session_for(tab).require()
+        found = forms.listing(doc, None if index is None else int(index))
+        for field in found:
+            field["rect"] = _shown_geometry(doc[field["page"]], field["rect"])
+        return found
 
     @endpoint
     def form_set(self, index, name, value):
@@ -918,11 +996,17 @@ class Api:
         Only looks; changes nothing. Costs a few milliseconds, so the window
         can ask for it every time it draws a page.
         """
-        return tickboxes.find(self._session_for(tab).require(), int(index))
+        return _shown_items(self._page(index, tab),
+                            tickboxes.find(self._session_for(tab).require(), int(index)),
+                            "rect")
 
     @endpoint
     def boxes_toggle(self, index, rect):
-        return self._mutate(tickboxes.toggle, int(index), rect)
+        result = self._mutate(tickboxes.toggle, int(index),
+                              _page_geometry(self._page(index), rect))
+        if isinstance(result, dict) and result.get("rect"):
+            result["rect"] = _shown_geometry(self._page(index), result["rect"])
+        return result
 
     @endpoint
     def form_set_widget(self, index, xref, value):
@@ -940,7 +1024,8 @@ class Api:
     @endpoint
     def form_add(self, index, kind, rect, name, value="", options=None,
                  size=11, required=False):
-        return self._mutate(forms.add_field, int(index), kind, rect, name, value,
+        return self._mutate(forms.add_field, int(index), kind,
+                            _page_geometry(self._page(index), rect), name, value,
                             options or [], float(size), bool(required))
 
     @endpoint
@@ -992,7 +1077,8 @@ class Api:
 
     @endpoint
     def redact_mark(self, index, rects, label=""):
-        return self._mutate(security.mark, int(index), rects, label)
+        return self._mutate(security.mark, int(index),
+                            _page_geometry(self._page(index), rects), label)
 
     @endpoint
     def redact_search(self, needle):

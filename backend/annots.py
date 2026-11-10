@@ -49,6 +49,18 @@ def type_name(annot) -> str:
 LINE_KINDS = ("Line",)
 
 
+def _upright_quad(page: fitz.Page, rect: fitz.Rect) -> fitz.Quad:
+    """A box as a quad whose top runs across the page as it is shown.
+
+    Markup is drawn along its quad's top edge and padded at its ends by its
+    height. On a turned page a box's plain quad runs the other way, so a
+    highlight across a line spilled far above and below it.
+    """
+    if not page.rotation:
+        return rect.quad
+    return (fitz.Rect(rect) * page.rotation_matrix).quad * page.derotation_matrix
+
+
 def _words_in(page: fitz.Page, rect: fitz.Rect) -> list[fitz.Quad]:
     """Quads for words overlapping a rectangle, so markup follows the text."""
     quads = []
@@ -57,7 +69,7 @@ def _words_in(page: fitz.Page, rect: fitz.Rect) -> list[fitz.Quad]:
         if box.intersects(rect):
             overlap = (box & rect).get_area()
             if box.get_area() and overlap > 0.35 * box.get_area():
-                quads.append(box.quad)
+                quads.append(_upright_quad(page, box))
     return quads
 
 
@@ -71,7 +83,7 @@ def add_markup(doc: fitz.Document, page_no: int, kind: str, rects: list[list[flo
     for raw in rects:
         rect = fitz.Rect(raw)
         found = _words_in(page, rect) if snap_to_words else []
-        quads.extend(found if found else [rect.quad])
+        quads.extend(found if found else [_upright_quad(page, rect)])
     if not quads:
         raise PdfError("Nothing to mark up in that area.")
     annot = getattr(page, MARKUP[kind])(quads)
@@ -107,7 +119,8 @@ def add_textbox(doc: fitz.Document, page_no: int, rect: list[float], text: str,
         kwargs["fill_color"] = fill
         if border is not None:
             kwargs["border_color"] = border
-    annot = page.add_freetext_annot(fitz.Rect(rect), text, **kwargs)
+    # Turned with the page, so it reads upright as the page is shown.
+    annot = page.add_freetext_annot(fitz.Rect(rect), text, rotate=page.rotation, **kwargs)
     annot.update()
     return {"id": annot.xref, "type": "text box"}
 
@@ -116,10 +129,11 @@ def add_shape(doc: fitz.Document, page_no: int, kind: str, points: list[list[flo
               color: tuple = (0.85, 0.1, 0.1), fill: tuple | None = None,
               width: float = 1.5, opacity: float = 1.0) -> dict:
     page = doc[page_no]
+    # Normalised: corners dragged on a turned page arrive in any order.
     if kind in ("rect", "square"):
-        annot = page.add_rect_annot(fitz.Rect(list(points[0]) + list(points[1])))
+        annot = page.add_rect_annot(fitz.Rect(list(points[0]) + list(points[1])).normalize())
     elif kind in ("circle", "ellipse"):
-        annot = page.add_circle_annot(fitz.Rect(list(points[0]) + list(points[1])))
+        annot = page.add_circle_annot(fitz.Rect(list(points[0]) + list(points[1])).normalize())
     elif kind == "line":
         annot = page.add_line_annot(fitz.Point(points[0]), fitz.Point(points[1]))
     elif kind == "arrow":
@@ -162,10 +176,38 @@ def add_stamp(doc: fitz.Document, page_no: int, rect: list[float],
     if key not in STAMPS:
         raise PdfError("Unknown stamp: " + str(label))
     page = doc[page_no]
+    if page.rotation:
+        return _turned_stamp(doc, page_no, fitz.Rect(rect), STAMPS[key], color)
     annot = page.add_stamp_annot(fitz.Rect(rect), stamp=STAMPS[key])
     annot.set_colors(stroke=color)
     annot.update()
     return {"id": annot.xref, "type": "stamp"}
+
+
+def _turned_stamp(doc: fitz.Document, page_no: int, rect: fitz.Rect, stamp: int,
+                  color: tuple) -> dict:
+    """A built-in stamp on a turned page, upright as the page is shown.
+
+    MuPDF draws a stamp's artwork along the page as stored, ignores the
+    annotation's own /Rotate when it does, and draws it again on every move or
+    resize - so on a turned page it came out sideways and shrunk to a sliver.
+    Instead the artwork is drawn on an upright scratch page and placed as a
+    picture, the way signatures are, which stays upright however it is moved.
+    """
+    from . import signatures
+    page = doc[page_no]
+    shown = rect * page.rotation_matrix
+    scratch = fitz.open()
+    blank = scratch.new_page(width=shown.width + 20, height=shown.height + 20)
+    art = blank.add_stamp_annot(fitz.Rect(10, 10, 10 + shown.width, 10 + shown.height),
+                                stamp=stamp)
+    art.set_colors(stroke=color)
+    art.update()
+    picture = blank.get_pixmap(matrix=fitz.Matrix(4, 4), clip=art.rect, alpha=True)
+    label = next((name for name, value in STAMPS.items() if value == stamp), "stamp")
+    placed = signatures.place_picture(doc, page_no, rect, picture.tobytes("png"),
+                                      content=label.title())
+    return {"id": placed["id"], "type": "stamp"}
 
 
 def add_image(doc: fitz.Document, page_no: int, rect: list[float],
@@ -174,7 +216,7 @@ def add_image(doc: fitz.Document, page_no: int, rect: list[float],
     """Draw an image into the page content stream, not as an annotation."""
     page = doc[page_no]
     page.insert_image(fitz.Rect(rect), filename=path, stream=stream,
-                      keep_proportion=keep_ratio, overlay=True)
+                      keep_proportion=keep_ratio, overlay=True, rotate=page.rotation)
     return {"ok": True}
 
 

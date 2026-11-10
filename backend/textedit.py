@@ -713,7 +713,12 @@ def add_text(doc: fitz.Document, page_no: int, rect: list[float], text: str,
              "color": (int(color[0] * 255) << 16) | (int(color[1] * 255) << 8) | int(color[2] * 255)}
     binder = FontBinder(doc)
     fonts_before = fontmod.page_font_xrefs(doc, page_no)
-    result = _typeset(page, fitz.Rect(rect), text, style, align, spacing, binder, min_scale=0.6)
+    # Set the way the page is shown: on a turned page "across" runs along
+    # what the page stores as up or down.
+    turn = page.derotation_matrix
+    frame = _Frame(fitz.Point(1, 0) * fitz.Matrix(turn.a, turn.b, turn.c, turn.d, 0, 0))
+    result = _typeset(page, frame.rect(rect), text, style, align, spacing, binder,
+                      min_scale=0.6, frame=frame)
     fontmod.repair_inserted_fonts(doc, page_no, fonts_before)
     return result
 

@@ -341,15 +341,22 @@ def _path_for(identifier: str) -> str:
     raise PdfError("Signature not found.")
 
 
-def _image_xref(doc: fitz.Document, path: str) -> tuple[int, int, int]:
+def _image_xref(doc: fitz.Document, path, turn: int = 0) -> tuple[int, int, int]:
     """Add an image XObject to the file without drawing it on any page.
 
     Returns (xref, width, height). Transparency is carried in a separate
     /SMask image, which is how PDF represents an alpha channel -- without it a
     signature would stamp an opaque white rectangle over the document.
+
+    `turn` is the page's rotation. The image is stored turned back against it,
+    so it reads upright on a turned page. Turning the drawing instead does not
+    last: MuPDF redraws a stamp's appearance whenever it is moved or resized,
+    and draws the image as stored.
     """
-    with Image.open(path) as opened:
+    with Image.open(io.BytesIO(path) if isinstance(path, bytes) else path) as opened:
         image = opened.convert("RGBA")
+    if turn % 360:
+        image = image.rotate(turn % 360, expand=True)
     width, height = image.size
     rgb = image.convert("RGB").tobytes()
     alpha = image.getchannel("A").tobytes()
@@ -383,25 +390,45 @@ def place(doc: fitz.Document, page_no: int, identifier: str, rect: list[float],
     if box.is_empty or box.width < 4 or box.height < 4:
         raise PdfError("Signature area is too small.")
 
+    # On a turned page the signature is turned with it, so it reads upright as
+    # the page is shown; a quarter turn also swaps its width and height here.
     if flatten:
-        page.insert_image(box, filename=path, keep_proportion=keep_ratio, overlay=True)
+        page.insert_image(box, filename=path, keep_proportion=keep_ratio, overlay=True,
+                          rotate=page.rotation)
         return {"ok": True, "flattened": True,
                 "rect": [box.x0, box.y0, box.x1, box.y1]}
 
-    xref, width, height = _image_xref(doc, path)
+    name = next((i["name"] for i in _load() if i["id"] == identifier), "Signature")
+    return place_picture(doc, page_no, box, path, name, "Signature", keep_ratio)
+
+
+def place_picture(doc: fitz.Document, page_no: int, rect, source, title: str = "",
+                  content: str = "", keep_ratio: bool = True) -> dict:
+    """A picture as a stamp annotation, so it can be moved, resized or removed.
+
+    `source` is an image file's path or its bytes. On a turned page the image
+    is stored turned back against the page, so it reads upright as shown.
+    """
+    page = doc[page_no]
+    box = fitz.Rect(rect)
+    xref, width, height = _image_xref(doc, source, page.rotation)
     if keep_ratio and width and height:
-        scale = min(box.width / width, box.height / height)
-        box = fitz.Rect(box.x0, box.y0, box.x0 + width * scale, box.y0 + height * scale)
+        # Fitted as the page is shown, keeping its top left corner there; on
+        # a turned page the stored top left is some other corner.
+        shown = box * page.rotation_matrix
+        across, down = (height, width) if page.rotation in (90, 270) else (width, height)
+        scale = min(shown.width / across, shown.height / down)
+        shown = fitz.Rect(shown.x0, shown.y0, shown.x0 + across * scale, shown.y0 + down * scale)
+        box = shown * page.derotation_matrix
 
     annot = page.add_stamp_annot(box, stamp=0)
-    name = next((i["name"] for i in _load() if i["id"] == identifier), "Signature")
-    annot.set_info(title=name, content="Signature")
+    annot.set_info(title=title, content=content)
     annot.update()
 
-    # Swap the built-in stamp artwork for the signature image.
+    # Swap the built-in stamp artwork for the picture.
     kind, value = doc.xref_get_key(annot.xref, "AP/N")
     if kind != "xref":
-        raise PdfError("Could not build the signature appearance.")
+        raise PdfError("Could not build the picture's appearance.")
     appearance = int(value.split()[0])
     doc.update_stream(appearance,
                       ("q %d 0 0 %d 0 0 cm /SigIm Do Q" % (width, height)).encode())

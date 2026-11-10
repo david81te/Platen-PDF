@@ -165,6 +165,17 @@ def _visual_diff(left: fitz.Page | None, right: fitz.Page | None,
     return regions
 
 
+def _as_shown(page: fitz.Page | None, rects: list[list[float]]) -> list[list[float]]:
+    if page is None or not page.rotation:
+        return rects
+    return [list(fitz.Rect(r) * page.rotation_matrix) for r in rects]
+
+
+def _as_stored(page: fitz.Page, rect) -> fitz.Rect:
+    box = fitz.Rect(rect)
+    return box * page.derotation_matrix if page.rotation else box
+
+
 def compare(left: fitz.Document, right: fitz.Document,
             visual: bool = True) -> dict:
     """Compare two documents. `left` is the older one, `right` the newer."""
@@ -204,8 +215,10 @@ def compare(left: fitz.Document, right: fitz.Document,
             "left": pair["left"],
             "right": pair["right"],
             "state": state,
-            "added_rects": diff["added_rects"],
-            "removed_rects": diff["removed_rects"],
+            # As each page is shown, like the visual regions, which come from
+            # rendering it; the words come from its unrotated coordinates.
+            "added_rects": _as_shown(right_page, diff["added_rects"]),
+            "removed_rects": _as_shown(left_page, diff["removed_rects"]),
             "visual_rects": regions,
             "added_words": diff["added_words"],
             "removed_words": diff["removed_words"],
@@ -235,8 +248,9 @@ def mark_up(right: fitz.Document, result: dict, include_visual: bool = True) -> 
             continue
         page = right[index]
 
+        # The result is in shown coordinates; annotations go where stored.
         for rect in page_result["added_rects"]:
-            annot = page.add_highlight_annot(fitz.Rect(rect))
+            annot = page.add_highlight_annot(_as_stored(page, rect))
             annot.set_colors(stroke=ADD_COLOUR)
             annot.set_info(title="Compare", content="Added")
             annot.update()
@@ -244,7 +258,7 @@ def mark_up(right: fitz.Document, result: dict, include_visual: bool = True) -> 
 
         if include_visual:
             for rect in page_result["visual_rects"]:
-                annot = page.add_rect_annot(fitz.Rect(rect))
+                annot = page.add_rect_annot(_as_stored(page, rect))
                 annot.set_colors(stroke=MOVED_COLOUR)
                 annot.set_border(width=1)
                 annot.set_opacity(0.55)
@@ -254,8 +268,9 @@ def mark_up(right: fitz.Document, result: dict, include_visual: bool = True) -> 
 
         removed = page_result["removed_words"]
         if removed:
+            corner = fitz.Point(page.rect.x1 - 28, page.rect.y0 + 22)
             note = page.add_text_annot(
-                fitz.Point(page.rect.x1 - 28, page.rect.y0 + 22),
+                corner * page.derotation_matrix if page.rotation else corner,
                 "%d word%s removed here:\n\n%s" % (
                     removed, "" if removed == 1 else "s",
                     "\n".join("- " + c["before"] for c in page_result["changes"]
