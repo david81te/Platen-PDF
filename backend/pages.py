@@ -80,11 +80,19 @@ def duplicate(doc: fitz.Document, indices: list[int]) -> dict:
 
 
 def crop(doc: fitz.Document, index: int, rect: list[float]) -> dict:
+    """Crop to `rect`, in the page's own (unturned) coordinates.
+
+    Those run from the top left of what is shown now, so a page that is
+    already cropped, or whose media box does not start at 0,0, needs that
+    corner added back: the crop box is set in the media box's terms.
+    """
     page = doc[index]
-    box = fitz.Rect(rect) & page.rect
+    bounds = page.rect * page.derotation_matrix if page.rotation else page.rect
+    box = fitz.Rect(rect) & bounds
     if box.is_empty or box.width < 10 or box.height < 10:
         raise PdfError("Crop area is too small.")
-    page.set_cropbox(box)
+    corner = page.cropbox.tl
+    page.set_cropbox(box + (corner.x, corner.y, corner.x, corner.y))
     return {"rect": [box.x0, box.y0, box.x1, box.y1]}
 
 

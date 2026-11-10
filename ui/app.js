@@ -442,7 +442,7 @@ async function buildOverlay() {
   }
 
   if (S.compare) {
-    const forPage = S.compare.pages.find((p) => p.right === S.page);
+    const forPage = S.compare.pages.find((p) => frontPage(p) === S.page);
     if (forPage) {
       const paint = (rects, cls) => (rects || []).forEach((r) => {
         const mark = el('div', cls);
@@ -454,7 +454,8 @@ async function buildOverlay() {
         ov.appendChild(mark);
       });
       paint(forPage.visual_rects, 'diff-visual');
-      paint(forPage.added_rects, 'diff-add');
+      if (S.compare.front === 'left') paint(forPage.removed_rects, 'diff-remove');
+      else paint(forPage.added_rects, 'diff-add');
     }
   }
 
@@ -1237,7 +1238,8 @@ function promptAddText(rect) {
       if (!v.text.trim()) return;
       if (v.permanent) {
         await busyRun('Adding text…', 'add_text', S.page, rect, v.text, 'Calibri',
-          parseFloat(v.size) || 11, [0, 0, 0], 'left', false, false);
+          parseFloat(v.size) || 11, [0, 0, 0],
+          ['left', 'center', 'right'][parseInt(v.align, 10) || 0], false, false);
         await refresh(false);
         return;
       }
@@ -1799,6 +1801,12 @@ function swatchHtml(current) {
     '" data-i="' + i + '" style="background:' + rgbCss(c) + '"></div>').join('') + '</div>';
 }
 
+// The page of a compared pair that belongs to the document in front, which
+// is the earlier version when the person said so.
+function frontPage(p) {
+  return S.compare && S.compare.front === 'left' ? p.left : p.right;
+}
+
 function compareInspector() {
   const r = S.compare;
   const s = r.summary || {};
@@ -1815,13 +1823,15 @@ function compareInspector() {
     '</div>';
 
   pages.forEach((p, i) => {
-    const where = p.right !== null ? 'Page ' + (p.right + 1)
-                                   : 'Page ' + (p.left + 1) + ' (removed)';
+    const mine = frontPage(p);
+    const where = mine !== null ? 'Page ' + (mine + 1)
+      : r.front === 'left' ? 'Page ' + (p.right + 1) + ' of the newer (added)'
+      : 'Page ' + (p.left + 1) + ' (removed)';
     const bits = (p.changes || []).slice(0, 3).map((c) =>
       (c.before ? '<del>' + escapeHtml(c.before.slice(0, 60)) + '</del> ' : '') +
       (c.after ? '<ins>' + escapeHtml(c.after.slice(0, 60)) + '</ins>' : '')).join('<br>');
-    html += '<div class="cmp-row' + (p.right === S.comparePage ? ' on' : '') +
-      '" data-page="' + (p.right === null ? -1 : p.right) + '">' +
+    html += '<div class="cmp-row' + (mine === S.comparePage ? ' on' : '') +
+      '" data-page="' + (mine === null ? -1 : mine) + '">' +
       '<div class="p">' + where + ' <span class="cmp-state ' + p.state + '">' +
       p.state + '</span></div>' +
       (bits ? '<div class="s">' + bits + '</div>' : '') + '</div>';
@@ -2008,9 +2018,9 @@ const ACTIONS = {
       '<option value="current">This one</option></select></div>' +
       '<div class="field"><label><input type="checkbox" name="visual" style="width:auto" checked> ' +
       'Also look for changes to graphics and layout</label></div>' +
-      '<p class="hint">Differences are marked on whichever document is the newer ' +
-      'of the two &mdash; green for added text, a dashed outline where the page ' +
-      'itself looks different.</p>',
+      '<p class="hint">Differences are marked on this document &mdash; green for ' +
+      'text the newer version added, or red for text it took out if this is the ' +
+      'earlier one, and a dashed outline where the page itself looks different.</p>',
       async (v) => {
         const r = v.source === 'file'
           ? await busyRun('Comparing…', 'compare_file', v.visual, v.older)
@@ -2335,23 +2345,6 @@ function renderHits(truncated) {
     ? (S.hitIndex + 1) + ' of ' + S.hits.length + (truncated ? '+' : '')
     : 'No matches';
   if (!S.hits.length) return;
-
-  if (S.compare) {
-    const forPage = S.compare.pages.find((p) => p.right === S.page);
-    if (forPage) {
-      const paint = (rects, cls) => (rects || []).forEach((r) => {
-        const mark = el('div', cls);
-        Object.assign(mark.style, {
-          left: toPx(r[0]) - 1 + 'px', top: toPx(r[1]) - 1 + 'px',
-          width: toPx(r[2] - r[0]) + 2 + 'px',
-          height: toPx(r[3] - r[1]) + 2 + 'px',
-        });
-        ov.appendChild(mark);
-      });
-      paint(forPage.visual_rects, 'diff-visual');
-      paint(forPage.added_rects, 'diff-add');
-    }
-  }
 
   S.hits.forEach((h, i) => {
     const row = el('div', 'findrow' + (i === S.hitIndex ? ' on' : ''),

@@ -13,6 +13,56 @@ $ErrorActionPreference = 'Stop'
 $AppName = 'Platen PDF'
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 
+# One spelling of the folder, used for it and for .new and .old beside it. A
+# trailing backslash put .new inside the folder being replaced; a short 8.3
+# name (PLATEN~1) moved the real folder aside and built one called that.
+function Expand-Path([string]$path) {
+    $full = [IO.Path]::GetFullPath($path)
+    $root = [IO.Path]::GetPathRoot($full)
+    $now = $root
+    foreach ($part in $full.Substring($root.Length).Split([char[]]'\', [StringSplitOptions]::RemoveEmptyEntries)) {
+        $found = $null
+        if (Test-Path -LiteralPath $now) {
+            # A filter matches short names too, and hands back the long one.
+            $found = Get-ChildItem -LiteralPath $now -Filter $part -Force -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+        }
+        $now = Join-Path $now $(if ($found) { $found.Name } else { $part })
+    }
+    return $now.TrimEnd('\')
+}
+$Destination = Expand-Path $Destination
+
+# The program writes to its error stream now and then - a library's warning.
+# Under 'Stop', or under the update helper's *> capture, PowerShell turns any
+# such line into a failure, and an update that had worked was reported broken.
+function Invoke-Program([string]$exe, [string[]]$arguments) {
+    $saved = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        return (& $exe @arguments 2>&1 | ForEach-Object { "$_" } | Out-String)
+    } catch {
+        return "$_"
+    } finally {
+        $ErrorActionPreference = $saved
+    }
+}
+
+# Renaming a folder fails while anything has a file in it open, and right
+# after the old copy exits or the new one is checked something often still
+# does for a moment - an antivirus scan, the search indexer.
+function Rename-Patiently([string]$path, [string]$name) {
+    for ($try = 1; $try -le 20; $try++) {
+        try {
+            Rename-Item -LiteralPath $path -NewName $name -ErrorAction Stop
+            return $true
+        } catch {
+            Start-Sleep -Milliseconds 400
+        }
+    }
+    return $false
+}
+
 function Say([string]$text, [string]$colour = 'Gray') {
     if (-not $Quiet) { Write-Host $text -ForegroundColor $colour }
 }
@@ -63,8 +113,9 @@ Get-ChildItem -LiteralPath $payload -Recurse -File -ErrorAction SilentlyContinue
 # the installer closes it. Run quietly - which is how Platen PDF updates
 # itself, after closing the window that asked - it refuses instead: any copy
 # still running is another window, which may be holding unsaved work.
+# Matched on the whole folder name: "Platen PDF 2" is not "Platen PDF".
 $running = Get-Process -Name 'PlatenPDF' -ErrorAction SilentlyContinue |
-    Where-Object { $_.Path -and $_.Path.StartsWith($Destination, [StringComparison]::OrdinalIgnoreCase) }
+    Where-Object { $_.Path -and $_.Path.StartsWith($Destination + '\', [StringComparison]::OrdinalIgnoreCase) }
 if ($running) {
     if ($Quiet) {
         Write-Host "  Platen PDF is still running, so nothing was changed."
@@ -82,8 +133,25 @@ if ($running) {
 # has passed its check, and comes back if the swap fails.
 $staged = "$Destination.new"
 $retired = "$Destination.old"
+# A swap cut short - by a power cut, say - can leave only the old copy, set
+# aside. It is the working program, so it goes back before anything is
+# cleared away.
+if (-not (Test-Path -LiteralPath $Destination) -and (Test-Path -LiteralPath (Join-Path $retired 'PlatenPDF.exe'))) {
+    if (-not (Rename-Patiently $retired (Split-Path $Destination -Leaf))) {
+        Write-Host "  The previous copy, at $retired, could not be put back. Nothing was changed." -ForegroundColor Red
+        exit 1
+    }
+}
 foreach ($stale in @($staged, $retired)) {
-    if (Test-Path -LiteralPath $stale) { Remove-Item -LiteralPath $stale -Recurse -Force }
+    if (Test-Path -LiteralPath $stale) {
+        Remove-Item -LiteralPath $stale -Recurse -Force -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $stale) {
+            Write-Host "  $stale is left over from an earlier install and could not be removed." -ForegroundColor Red
+            Write-Host "  Restart the PC, delete it, and run this again. Nothing was changed."
+            if (-not $Quiet) { Read-Host "  Press Enter to close" | Out-Null }
+            exit 1
+        }
+    }
 }
 New-Item -ItemType Directory -Path $staged -Force | Out-Null
 
@@ -117,7 +185,7 @@ if (-not (Test-Path (Join-Path $staged 'PlatenPDF.exe'))) {
 # Piping is what makes PowerShell wait: the exe is windowed, so calling it
 # plainly returns at once and tests nothing.
 Say "  Checking the new copy..."
-$check = (& (Join-Path $staged 'PlatenPDF.exe') --selftest 2>&1 | Out-String)
+$check = Invoke-Program (Join-Path $staged 'PlatenPDF.exe') @('--selftest')
 if ($check -notmatch 'SELFTEST: PASS') {
     Abandon @("The new copy did not pass its own check. Nothing was changed.",
               "",
@@ -130,17 +198,17 @@ if ($check -notmatch 'SELFTEST: PASS') {
 $leaf = Split-Path $Destination -Leaf
 if (Test-Path -LiteralPath $Destination) {
     Say "  Replacing the previous version..."
-    try {
-        Rename-Item -LiteralPath $Destination -NewName (Split-Path $retired -Leaf) -ErrorAction Stop
-    } catch {
+    if (-not (Rename-Patiently $Destination (Split-Path $retired -Leaf))) {
         Abandon @("The previous version is in use, so nothing was changed.",
                   "Close Platen PDF, and any window open in its folder, then try again.")
     }
 }
-try {
-    Rename-Item -LiteralPath $staged -NewName $leaf -ErrorAction Stop
-} catch {
-    if (Test-Path -LiteralPath $retired) { Rename-Item -LiteralPath $retired -NewName $leaf }
+if (-not (Rename-Patiently $staged $leaf)) {
+    if ((Test-Path -LiteralPath $retired) -and -not (Rename-Patiently $retired $leaf)) {
+        # Left as it is, the next run of this installer puts it back.
+        Write-Host "  The previous version is at $retired. Run this installer again to restore it." -ForegroundColor Red
+        exit 1
+    }
     Abandon @("The new version could not be put in place, so the previous one was kept.")
 }
 if (Test-Path -LiteralPath $retired) {
@@ -150,17 +218,25 @@ if (Test-Path -LiteralPath $retired) {
 $exe = Join-Path $Destination 'PlatenPDF.exe'
 
 # Leave an uninstaller behind so this is reversible without hunting for files.
+# Paths go in single quotes, where an apostrophe - O'Brien's profile folder -
+# has to be doubled or the whole script fails to parse.
+function Quoted([string]$text) { "'" + $text.Replace("'", "''") + "'" }
 $uninstallPs1 = Join-Path $Destination 'uninstall.ps1'
+$startLink = Quoted (Join-Path ([Environment]::GetFolderPath('Programs')) "$AppName.lnk")
+$deskLink = Quoted (Join-Path ([Environment]::GetFolderPath('Desktop')) "$AppName.lnk")
+# The remover runs as a command line inside this script's text, so the
+# folder is quoted once for that command and once more for this script.
+$remover = Quoted ("Start-Sleep -Seconds 2; Remove-Item -LiteralPath " + (Quoted $Destination) + " -Recurse -Force")
 @"
 `$ErrorActionPreference = 'SilentlyContinue'
-Get-Process -Name 'PlatenPDF' | Stop-Process -Force
+Get-Process -Name 'PlatenPDF' | Where-Object { `$_.Path -and `$_.Path.StartsWith($(Quoted ($Destination + '\')), [StringComparison]::OrdinalIgnoreCase) } | Stop-Process -Force
 Start-Sleep -Seconds 1
-& '$exe' --unregister
-Remove-Item '$(Join-Path ([Environment]::GetFolderPath('Programs')) "$AppName.lnk")'
-Remove-Item '$(Join-Path ([Environment]::GetFolderPath('Desktop')) "$AppName.lnk")'
+& $(Quoted $exe) --unregister
+Remove-Item -LiteralPath $startLink
+Remove-Item -LiteralPath $deskLink
 # The folder cannot delete itself while this script is running out of it, so
 # hand the job to a second process that waits for this one to exit.
-Start-Process powershell -ArgumentList '-NoProfile','-Command',"Start-Sleep -Seconds 2; Remove-Item -LiteralPath '$Destination' -Recurse -Force"
+Start-Process powershell -ArgumentList '-NoProfile','-Command',$remover
 Write-Host 'Platen PDF has been removed.'
 Start-Sleep -Seconds 2
 "@ | Set-Content -LiteralPath $uninstallPs1 -Encoding UTF8
@@ -191,7 +267,9 @@ if (-not $NoAssociation) {
     Say "  Registering as a PDF application..."
     # Quiet is how Platen PDF updates itself: re-register, but leave Settings
     # closed for someone who has already chosen their PDF app.
-    if ($Quiet) { & $exe --register --quiet | Out-Null } else { & $exe --register | Out-Null }
+    # Its answer does not decide the install: the new copy is already in place.
+    if ($Quiet) { $null = Invoke-Program $exe @('--register', '--quiet') }
+    else { $null = Invoke-Program $exe @('--register') }
 }
 
 Say ""

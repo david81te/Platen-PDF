@@ -96,6 +96,25 @@ and cannot see what the build is missing, so `build.ps1` runs `PlatenPDF.exe
 and refuses it if one fails. A feature that works from source but not
 installed: look in `build_trim.py` first, and add it to the smoke test.
 
+**Applying a redaction applies every redaction on the page**, and MuPDF also
+deletes comments and links it overlaps. Text editing sets the page's /Annots
+aside while it redacts, then reloads the page - which MuPDF only does if no
+other `Page` object for it is alive, so the editors drop theirs first
+(`page = None`) and `_apply_redactions` refuses before changing anything if
+one is still held. Text editing reads text through `_text_dict`, which leaves
+annotations out: plain `get_text` includes comments and form fields.
+
+**Every change through the API is all or nothing** (`Session.change()`): a
+failure part way restores the document and leaves no undo step. Use it for
+new endpoints instead of `checkpoint()` + `touch()`.
+
+**PowerShell 5.1 turns a native program's stderr into an error** under
+`$ErrorActionPreference = 'Stop'`, and under the update helper's `*>`
+capture even without `2>&1`. The installer runs the exe through
+`Invoke-Program`; `tests/test_installer.py` installs a stand-in that writes
+to stderr on purpose. The old installer reported success and installed
+nothing.
+
 **Closing a tab renumbers every tab after it.** Anything holding tab indices
 (the panes do) must shift them, or it ends up pointing at a different
 document.

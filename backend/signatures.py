@@ -393,13 +393,30 @@ def place(doc: fitz.Document, page_no: int, identifier: str, rect: list[float],
     # On a turned page the signature is turned with it, so it reads upright as
     # the page is shown; a quarter turn also swaps its width and height here.
     if flatten:
-        page.insert_image(box, filename=path, keep_proportion=keep_ratio, overlay=True,
+        # Fitted the way a movable one is, from the box's top left as shown,
+        # so the same signature lands in the same place either way.
+        if keep_ratio:
+            with Image.open(path) as opened:
+                box = _fit_shown(page, box, *opened.size)
+        page.insert_image(box, filename=path, keep_proportion=False, overlay=True,
                           rotate=page.rotation)
         return {"ok": True, "flattened": True,
                 "rect": [box.x0, box.y0, box.x1, box.y1]}
 
     name = next((i["name"] for i in _load() if i["id"] == identifier), "Signature")
     return place_picture(doc, page_no, box, path, name, "Signature", keep_ratio)
+
+
+def _fit_shown(page: fitz.Page, box: fitz.Rect, across: float, down: float) -> fitz.Rect:
+    """The largest box of a picture's shape inside `box`, at its top left as shown.
+
+    `across` and `down` are the picture's size as it should read on the page;
+    on a turned page the stored top left is some other corner.
+    """
+    shown = box * page.rotation_matrix
+    scale = min(shown.width / across, shown.height / down)
+    shown = fitz.Rect(shown.x0, shown.y0, shown.x0 + across * scale, shown.y0 + down * scale)
+    return shown * page.derotation_matrix
 
 
 def place_picture(doc: fitz.Document, page_no: int, rect, source, title: str = "",
@@ -413,13 +430,9 @@ def place_picture(doc: fitz.Document, page_no: int, rect, source, title: str = "
     box = fitz.Rect(rect)
     xref, width, height = _image_xref(doc, source, page.rotation)
     if keep_ratio and width and height:
-        # Fitted as the page is shown, keeping its top left corner there; on
-        # a turned page the stored top left is some other corner.
-        shown = box * page.rotation_matrix
+        # Stored turned back against a quarter-turned page: its sides swap.
         across, down = (height, width) if page.rotation in (90, 270) else (width, height)
-        scale = min(shown.width / across, shown.height / down)
-        shown = fitz.Rect(shown.x0, shown.y0, shown.x0 + across * scale, shown.y0 + down * scale)
-        box = shown * page.derotation_matrix
+        box = _fit_shown(page, box, across, down)
 
     annot = page.add_stamp_annot(box, stamp=0)
     annot.set_info(title=title, content=content)

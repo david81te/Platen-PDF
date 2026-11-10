@@ -31,7 +31,6 @@ This is a plain description of the licence, not legal advice.
 
 | Component | Licence | Used for |
 | --- | --- | --- |
-| pikepdf 10.13 | MPL-2.0 | PDF object repair |
 | Pillow 12.3 | MIT-CMU | image handling |
 | pdf2docx 0.5.13 | MIT | PDF to Word |
 | python-docx 1.2 | MIT | Word output |

@@ -341,10 +341,14 @@ class Api:
 
     # ---- comparing two documents ---------------------------------------
 
-    def _run_comparison(self, older, newer, visual, label):
+    def _run_comparison(self, older, newer, visual, label, front_is_older=False):
         result = comparison.compare(older, newer, visual=bool(visual))
         result["against"] = label
+        # Which side of each page pair is the document in front: the window
+        # marks that one, and so does marking up.
+        result["front"] = "left" if front_is_older else "right"
         self._comparison = result
+        self._comparison_with = self._session
         return result
 
     @endpoint
@@ -360,7 +364,7 @@ class Api:
         name = other.info().get("name") or "the other tab"
         if older == "other":
             return self._run_comparison(other.require(), current, visual, name)
-        return self._run_comparison(current, other.require(), visual, name)
+        return self._run_comparison(current, other.require(), visual, name, True)
 
     @endpoint
     def compare_file(self, visual=True, older="other"):
@@ -377,7 +381,7 @@ class Api:
             name = os.path.basename(chosen[0])
             if older == "other":
                 return self._run_comparison(other, current, visual, name)
-            return self._run_comparison(current, other, visual, name)
+            return self._run_comparison(current, other, visual, name, True)
         finally:
             other.close()
 
@@ -395,11 +399,12 @@ class Api:
         """Highlight the differences on the front document."""
         if not self._comparison:
             raise PdfError("Run a comparison first.")
-        doc = self._session.require()
-        self._session.checkpoint()
-        result = comparison.mark_up(doc, self._comparison)
-        self._session.touch()
-        return result
+        if getattr(self, "_comparison_with", self._session) is not self._session:
+            raise PdfError("That comparison was made with another document in front. "
+                           "Compare again from this one.")
+        with self._session.change() as doc:
+            return comparison.mark_up(doc, self._comparison,
+                                      side=self._comparison.get("front", "right"))
 
     @endpoint
     def tab_list(self):
@@ -441,11 +446,8 @@ class Api:
         if source_index == self._active:
             raise PdfError("Choose a different tab to merge from.")
         other = self._docs[source_index].require()
-        doc = self._session.require()
-        self._session.checkpoint()
-        result = pages.merge_document(doc, other, None if at is None else int(at))
-        self._session.touch()
-        return result
+        with self._session.change() as doc:
+            return pages.merge_document(doc, other, None if at is None else int(at))
 
     def _open_any(self, path, password=None):
         extension = os.path.splitext(path)[1].lower()
@@ -555,50 +557,41 @@ class Api:
 
     @endpoint
     def edit_span(self, span_id, text):
-        doc = self._session.require()
-        self._session.checkpoint()
-        result = textedit.edit_span(doc, span_id, text)
-        self._session.touch()
+        with self._session.change() as doc:
+            result = textedit.edit_span(doc, span_id, text)
         self._session.reload()
         return result
 
     @endpoint
     def edit_block(self, block_id, text):
-        doc = self._session.require()
-        self._session.checkpoint()
-        result = textedit.edit_block(doc, block_id, text)
-        self._session.touch()
+        with self._session.change() as doc:
+            result = textedit.edit_block(doc, block_id, text)
         self._session.reload()
         return result
 
     @endpoint
     def delete_text(self, index, rect):
-        doc = self._session.require()
-        self._session.checkpoint()
-        result = textedit.delete_region(doc, int(index),
-                                        _page_geometry(doc[int(index)], rect))
-        self._session.touch()
+        with self._session.change() as doc:
+            result = textedit.delete_region(doc, int(index),
+                                            _page_geometry(doc[int(index)], rect))
+        self._session.reload()        # its annotations were set aside and put back
         return result
 
     @endpoint
     def add_text(self, index, rect, text, font="Calibri", size=11, color=None,
                  align="left", bold=False, italic=False):
-        doc = self._session.require()
-        self._session.checkpoint()
-        result = textedit.add_text(doc, int(index), _page_geometry(doc[int(index)], rect),
-                                   text, font_name=font,
-                                   size=float(size), color=_color(color),
-                                   align=align, bold=bool(bold), italic=bool(italic))
-        self._session.touch()
+        with self._session.change() as doc:
+            result = textedit.add_text(doc, int(index), _page_geometry(doc[int(index)], rect),
+                                       text, font_name=font,
+                                       size=float(size), color=_color(color),
+                                       align=align, bold=bool(bold), italic=bool(italic))
         self._session.reload()
         return result
 
     @endpoint
     def replace_all(self, find, replace, match_case=True):
-        doc = self._session.require()
-        self._session.checkpoint()
-        result = textedit.replace_all(doc, find, replace, bool(match_case))
-        self._session.touch()
+        with self._session.change() as doc:
+            result = textedit.replace_all(doc, find, replace, bool(match_case))
         self._session.reload()
         return result
 
@@ -608,11 +601,8 @@ class Api:
         return self._session_for(tab).require()[int(index)]
 
     def _mutate(self, fn, *args, **kwargs):
-        doc = self._session.require()
-        self._session.checkpoint()
-        result = fn(doc, *args, **kwargs)
-        self._session.touch()
-        return result
+        with self._session.change() as doc:
+            return fn(doc, *args, **kwargs)
 
     @endpoint
     def page_rotate(self, indices, degrees=90):
@@ -664,9 +654,8 @@ class Api:
             if len(wanted) >= source.page_count:
                 built.close()
                 raise PdfError("Those are all the pages; the document would be empty.")
-            self._session.checkpoint()
-            pages.delete(source, wanted)
-            self._session.touch()
+            with self._session.change():
+                pages.delete(source, wanted)
         summary["removed"] = bool(remove)
 
         if open_tab:
@@ -757,9 +746,12 @@ class Api:
                      fill=None, opacity=None, author=None):
         if rect is not None:
             rect = _page_geometry(self._page(index), rect)
-        return self._mutate(annots.update, int(index), int(annot_id), rect, content,
-                            _maybe_color(color), _maybe_color(fill),
-                            None if opacity is None else float(opacity), author)
+        result = self._mutate(annots.update, int(index), int(annot_id), rect, content,
+                              _maybe_color(color), _maybe_color(fill),
+                              None if opacity is None else float(opacity), author)
+        if isinstance(result, dict) and result.get("points"):
+            result["points"] = _shown_geometry(self._page(index), result["points"])
+        return result
 
     @endpoint
     def annot_line_points(self, index, annot_id, points):
@@ -959,18 +951,16 @@ class Api:
 
     @endpoint
     def sig_place(self, index, identifier, rect, date_text="", flatten=False):
-        doc = self._session.require()
-        self._session.checkpoint()
-        page = doc[int(index)]
-        # The date goes to the right of the signature as the page is shown.
-        beside = [rect[2] + 8, rect[1], rect[2] + 160, rect[3]]
-        result = signatures.place_dated(doc, int(index), identifier,
-                                        _page_geometry(page, rect), date_text,
-                                        date_rect=_page_geometry(page, beside),
-                                        flatten=bool(flatten))
-        if result.get("rect"):
-            result["rect"] = _shown_geometry(doc[int(index)], result["rect"])
-        self._session.touch()
+        with self._session.change() as doc:
+            page = doc[int(index)]
+            # The date goes to the right of the signature as the page is shown.
+            beside = [rect[2] + 8, rect[1], rect[2] + 160, rect[3]]
+            result = signatures.place_dated(doc, int(index), identifier,
+                                            _page_geometry(page, rect), date_text,
+                                            date_rect=_page_geometry(page, beside),
+                                            flatten=bool(flatten))
+            if result.get("rect"):
+                result["rect"] = _shown_geometry(doc[int(index)], result["rect"])
         if date_text:
             self._session.reload()
         return result
@@ -1227,21 +1217,33 @@ class Api:
         number = int(start)
         if number < 0:
             raise ValueError("Bates numbers start from zero or more.")
-        done = []
+        done, changed = [], []
         for index in order:
             session = self._docs[index]
             if session.doc is None:
                 continue
-            session.checkpoint()
-            result = decorate.stamp(
-                session.doc, "bates", {position: "{bates}"}, None, float(size),
-                (0, 0, 0), "Helvetica", 36, 1, False,
-                {"prefix": prefix, "start": number, "digits": int(digits), "suffix": suffix},
-                os.path.basename(session.path or ""))
-            session.touch()
+            recorded = session.checkpoint()
+            changed.append((session, recorded))
+            try:
+                result = decorate.stamp(
+                    session.doc, "bates", {position: "{bates}"}, None, float(size),
+                    (0, 0, 0), "Helvetica", 36, 1, False,
+                    {"prefix": prefix, "start": number, "digits": int(digits),
+                     "suffix": suffix},
+                    os.path.basename(session.path or ""))
+            except Exception as exc:
+                # A production set is numbered as one sequence or not at all:
+                # every document already numbered in this run goes back too.
+                for earlier, mark in changed:
+                    earlier.rollback(mark)
+                name = session.info().get("name") or "a document"
+                raise PdfError("Could not number %s (%s), so no document was numbered."
+                               % (name, exc)) from exc
             done.append({"name": session.info().get("name"), "first": result.get("first"),
                          "last": result.get("last"), "pages": result["pages"]})
             number = result.get("next", number)
+        for session, _ in changed:
+            session.touch()
         if not done:
             raise NoDocument("No document is open.")
         return {"documents": done, "next": number}

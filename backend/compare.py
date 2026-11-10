@@ -39,7 +39,11 @@ def _page_words(page: fitz.Page) -> list[tuple[str, fitz.Rect]]:
     line lands at the end of the stream and the diff then reports the whole
     line as moved rather than the one word that changed.
     """
-    words = [(w[4], fitz.Rect(w[0], w[1], w[2], w[3])) for w in page.get_text("words")]
+    # As shown: on a turned page, sorting by the unturned coordinates mixes
+    # words from different lines, and one changed word reshuffles the rest.
+    turn = page.rotation_matrix if page.rotation else fitz.Identity
+    words = [(w[4], fitz.Rect(w[0], w[1], w[2], w[3]) * turn)
+             for w in page.get_text("words")]
     # Round the baseline so words on the same visual line sort together even
     # when their boxes differ by a fraction of a point.
     return sorted(words, key=lambda pair: (round(pair[1].y0 / 4.0), pair[1].x0))
@@ -165,12 +169,6 @@ def _visual_diff(left: fitz.Page | None, right: fitz.Page | None,
     return regions
 
 
-def _as_shown(page: fitz.Page | None, rects: list[list[float]]) -> list[list[float]]:
-    if page is None or not page.rotation:
-        return rects
-    return [list(fitz.Rect(r) * page.rotation_matrix) for r in rects]
-
-
 def _as_stored(page: fitz.Page, rect) -> fitz.Rect:
     box = fitz.Rect(rect)
     return box * page.derotation_matrix if page.rotation else box
@@ -215,10 +213,9 @@ def compare(left: fitz.Document, right: fitz.Document,
             "left": pair["left"],
             "right": pair["right"],
             "state": state,
-            # As each page is shown, like the visual regions, which come from
-            # rendering it; the words come from its unrotated coordinates.
-            "added_rects": _as_shown(right_page, diff["added_rects"]),
-            "removed_rects": _as_shown(left_page, diff["removed_rects"]),
+            # As each page is shown, like the visual regions.
+            "added_rects": diff["added_rects"],
+            "removed_rects": diff["removed_rects"],
             "visual_rects": regions,
             "added_words": diff["added_words"],
             "removed_words": diff["removed_words"],
@@ -234,25 +231,29 @@ REMOVE_COLOUR = (0.95, 0.52, 0.48)
 MOVED_COLOUR = (0.45, 0.62, 0.95)
 
 
-def mark_up(right: fitz.Document, result: dict, include_visual: bool = True) -> dict:
-    """Highlight the changes on the newer document, in place.
+def mark_up(doc: fitz.Document, result: dict, include_visual: bool = True,
+            side: str = "right") -> dict:
+    """Highlight the changes on one of the two documents, in place.
 
-    Additions are marked on the page they appear. Deletions have no position in
-    the newer document, so they are recorded as a note at the top of the page
-    rather than silently dropped.
+    `side` says which: "right" is the newer, where added words are marked
+    and removed ones, having no place there, are listed in a note; "left" is
+    the earlier, where it is the other way round.
     """
+    from .annots import _upright_quad
+    newer = side != "left"
     marked = 0
     for page_result in result["pages"]:
-        index = page_result["right"]
+        index = page_result["right" if newer else "left"]
         if index is None:
             continue
-        page = right[index]
+        page = doc[index]
 
-        # The result is in shown coordinates; annotations go where stored.
-        for rect in page_result["added_rects"]:
-            annot = page.add_highlight_annot(_as_stored(page, rect))
-            annot.set_colors(stroke=ADD_COLOUR)
-            annot.set_info(title="Compare", content="Added")
+        # The result is in shown coordinates; annotations go where stored,
+        # with quads whose top runs along the line as shown.
+        for rect in page_result["added_rects" if newer else "removed_rects"]:
+            annot = page.add_highlight_annot(_upright_quad(page, _as_stored(page, rect)))
+            annot.set_colors(stroke=ADD_COLOUR if newer else REMOVE_COLOUR)
+            annot.set_info(title="Compare", content="Added" if newer else "Removed")
             annot.update()
             marked += 1
 
@@ -266,15 +267,17 @@ def mark_up(right: fitz.Document, result: dict, include_visual: bool = True) -> 
                 annot.update()
                 marked += 1
 
-        removed = page_result["removed_words"]
-        if removed:
+        unplaced = page_result["removed_words" if newer else "added_words"]
+        if unplaced:
             corner = fitz.Point(page.rect.x1 - 28, page.rect.y0 + 22)
             note = page.add_text_annot(
                 corner * page.derotation_matrix if page.rotation else corner,
-                "%d word%s removed here:\n\n%s" % (
-                    removed, "" if removed == 1 else "s",
-                    "\n".join("- " + c["before"] for c in page_result["changes"]
-                              if c["before"])[:900]),
+                "%d word%s %s here:\n\n%s" % (
+                    unplaced, "" if unplaced == 1 else "s",
+                    "removed" if newer else "added in the newer version",
+                    "\n".join("- " + c["before" if newer else "after"]
+                              for c in page_result["changes"]
+                              if c["before" if newer else "after"])[:900]),
                 icon="Comment")
             note.set_colors(stroke=REMOVE_COLOUR)
             note.set_info(title="Compare", content=note.info.get("content", ""))

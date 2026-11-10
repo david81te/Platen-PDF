@@ -184,6 +184,118 @@ added = result["pages"][0]["added_rects"]
 check("an added word is boxed where it shows", added and near(fitz.Rect(added[0]), [180, 85, 230, 105], 25),
       True)
 
+print("== what a review of turned pages found ==")
+
+
+def saved(doc, name):
+    path = os.path.join(sandbox.DIR, "%s-%d.pdf" % (name, len(opened)))
+    opened.append(name)
+    doc.save(path)
+    doc.close()
+    api = Api()
+    api.open_path(path)
+    return api
+
+
+# A scan of words that reads upright on a page turned 90 degrees.
+scan = fitz.open()
+sheet = scan.new_page(width=792, height=612)
+sheet.insert_text((100, 200), "INVOICE NUMBER 12345", fontsize=36)
+picture = sheet.get_pixmap(matrix=fitz.Matrix(3, 3), alpha=False).tobytes("png")
+for rotation in (90, 270):
+    doc = fitz.open()
+    page = doc.new_page(width=612, height=792)
+    page.set_rotation(rotation)
+    page.insert_image(page.rect * page.derotation_matrix, stream=picture, rotate=rotation)
+    api = saved(doc, "scan")
+    api.ocr_run("eng", 150, False)
+    hits = api.search("INVOICE")["data"]["hits"]
+    check("rotation %3d: recognised words are found where they show" % rotation,
+          bool(hits) and near(fitz.Rect(hits[0]["rect"]), [100, 165, 250, 210], 16), True)
+
+for rotation in (90, 180, 270):
+    api = open_turned(rotation)
+    api.page_crop(0, [100, 100, 500, 400])
+    check("rotation %3d: a crop is the size it was drawn" % rotation,
+          [round(v) for v in api._page(0).rect], [0, 0, 400, 300])
+    api.page_crop(0, [0, 0, 300, 200])          # again, inside the first
+    hit = api.search("findme")["data"]["hits"]
+    check("rotation %3d: and cropping again keeps what was inside" % rotation,
+          bool(hit) and near(fitz.Rect(hit[0]["rect"]), [210, 70, 252, 89], 3), True)
+
+for rotation in (90, 180, 270):
+    doc = fitz.open()
+    doc.new_page(width=612, height=792)
+    doc.xref_set_key(doc[0].xref, "CropBox", "[50 92 560 712]")
+    doc.xref_set_key(doc[0].xref, "Rotate", str(rotation))
+    api = saved(fitz.open(stream=doc.tobytes(), filetype="pdf"), "cropped")
+    api.link_add(0, [150, 100, 260, 150], "https://example.com")
+    link = api.link_list(0)["data"][0]["rect"]
+    check("rotation %3d: a link on a cropped page lands where drawn" % rotation,
+          near(fitz.Rect(link), [150, 100, 260, 150], 1), True)
+
+    api = open_turned(rotation)
+    api.boxes_toggle(0, [100, 100, 120, 120])
+    page = api._session.doc[0]
+    stroke = page.first_annot.vertices
+    stroke = stroke[0] if stroke and isinstance(stroke[0][0], (list, tuple)) else stroke
+    shown = [fitz.Point(p) * page.rotation_matrix for p in stroke]
+    check("rotation %3d: a tick is the right way up" % rotation,
+          [(round(p.x), round(p.y)) for p in shown], [(103, 111), (108, 117), (117, 103)])
+
+    api = open_turned(rotation)
+    api.annot_stamp(0, TARGET, "draft")
+    stamp = api._session.doc[0].first_annot
+    check("rotation %3d: a stamp is still a Draft stamp" % rotation,
+          (stamp.info.get("content"), api._session.doc.xref_get_key(stamp.xref, "Name")[1]),
+          ("Draft", "/Draft"))
+
+    doc = fitz.open()
+    page = doc.new_page()
+    page.set_rotation(rotation)
+    for row, words in enumerate(("first line alpha words", "second line bravo words",
+                                 "third line charlie words")):
+        page.insert_text(fitz.Point(72, 100 + 20 * row) * page.derotation_matrix, words,
+                         fontsize=12, rotate=rotation)
+    api = saved(doc, "lines")
+    check("rotation %3d: a search hit quotes its own line" % rotation,
+          api.search("charlie")["data"]["hits"][0]["snippet"], "third line charlie words")
+
+    older, newer = fitz.open(), fitz.open()
+    for doc, line in ((older, "the quick fox jumps"), (newer, "the quick red fox jumps")):
+        page = doc.new_page()
+        page.set_rotation(rotation)
+        for row, words in enumerate((line, "over the lazy dog", "and runs far away")):
+            page.insert_text(fitz.Point(72, 100 + 20 * row) * page.derotation_matrix, words,
+                             fontsize=12, rotate=rotation)
+    found = compare.compare(older, newer, visual=False)["pages"][0]
+    check("rotation %3d: comparing finds the one word added" % rotation,
+          (found["added_words"], found["removed_words"]), (1, 0))
+
+print("== comparing when this one is the earlier version ==")
+
+
+def written(name, text):
+    path = os.path.join(sandbox.DIR, name)
+    doc = fitz.open()
+    doc.new_page().insert_text((72, 100), text, fontsize=14)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+api = Api()
+api.open_path(written("newer.pdf", "The price is twelve dollars"))
+api.open_path(written("older.pdf", "The price is ten dollars"))       # in front
+result = api.compare_tab(0, False, "current")["data"]
+check("the comparison knows the front one is the earlier", result["front"], "left")
+api.compare_markup()
+marks = [(a.type[1], a.info.get("content", "")[:7]) for a in api._session.doc[0].annots()]
+check("marking up marks what was taken out of it, not what the other added",
+      marks, [("Highlight", "Removed"), ("Text", "1 word ")])
+api.tab_switch(0)
+check("and marking up another document with it is refused", api.compare_markup()["ok"], False)
+
 print("\nRESULT:", "PASS" if not fails else "FAIL")
 for item in fails:
     print("  -", item)

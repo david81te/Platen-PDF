@@ -189,7 +189,13 @@ def tick(doc: fitz.Document, page_no: int, rect: list[float],
     box = fitz.Rect(rect)
     if box.is_empty:
         raise PdfError("That is not a box.")
-    annot = page.add_ink_annot(_tick_strokes(box))
+    if page.rotation:
+        # Drawn as the page is shown, then turned back into its coordinates.
+        strokes = [[tuple(fitz.Point(p) * page.derotation_matrix) for p in stroke]
+                   for stroke in _tick_strokes(box * page.rotation_matrix)]
+    else:
+        strokes = _tick_strokes(box)
+    annot = page.add_ink_annot(strokes)
     annot.set_colors(stroke=color)
     annot.set_border(width=max(0.8, min(width, box.width / 5.0)))
     # Marked so it can be found again, and so it is never confused with

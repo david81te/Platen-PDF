@@ -198,15 +198,24 @@ def _turned_stamp(doc: fitz.Document, page_no: int, rect: fitz.Rect, stamp: int,
     page = doc[page_no]
     shown = rect * page.rotation_matrix
     scratch = fitz.open()
-    blank = scratch.new_page(width=shown.width + 20, height=shown.height + 20)
-    art = blank.add_stamp_annot(fitz.Rect(10, 10, 10 + shown.width, 10 + shown.height),
-                                stamp=stamp)
-    art.set_colors(stroke=color)
-    art.update()
-    picture = blank.get_pixmap(matrix=fitz.Matrix(4, 4), clip=art.rect, alpha=True)
-    label = next((name for name, value in STAMPS.items() if value == stamp), "stamp")
-    placed = signatures.place_picture(doc, page_no, rect, picture.tobytes("png"),
-                                      content=label.title())
+    try:
+        blank = scratch.new_page(width=shown.width + 20, height=shown.height + 20)
+        art = blank.add_stamp_annot(fitz.Rect(10, 10, 10 + shown.width, 10 + shown.height),
+                                    stamp=stamp)
+        art.set_colors(stroke=color)
+        art.update()
+        # MuPDF fits the artwork into the box and centres it; placed where it
+        # landed there, it sits where the same stamp would on an unturned page.
+        fitted = art.rect + (shown.x0 - 10, shown.y0 - 10, shown.x0 - 10, shown.y0 - 10)
+        picture = blank.get_pixmap(matrix=fitz.Matrix(4, 4), clip=art.rect, alpha=True)
+        name = scratch.xref_get_key(art.xref, "Name")[1]
+        label = art.info.get("content", "")
+    finally:
+        scratch.close()
+    placed = signatures.place_picture(doc, page_no, fitted * page.derotation_matrix,
+                                      picture.tobytes("png"), content=label)
+    if name.startswith("/"):
+        doc.xref_set_key(placed["id"], "Name", name)     # which stamp it is
     return {"id": placed["id"], "type": "stamp"}
 
 
@@ -374,12 +383,24 @@ def add_link(doc: fitz.Document, page_no: int, rect: list[float],
     page = doc[page_no]
     box = fitz.Rect(rect)
     if uri:
-        page.insert_link({"kind": fitz.LINK_URI, "from": box, "uri": uri})
+        link = {"kind": fitz.LINK_URI, "from": box, "uri": uri}
     elif target_page is not None and 0 <= target_page < doc.page_count:
-        page.insert_link({"kind": fitz.LINK_GOTO, "from": box,
-                          "page": target_page, "to": fitz.Point(0, 0)})
+        link = {"kind": fitz.LINK_GOTO, "from": box, "page": target_page,
+                "to": fitz.Point(0, 0)}
     else:
         raise PdfError("A link needs either a URL or a target page.")
+    # On a turned page whose crop or media box does not start at 0,0,
+    # PyMuPDF leaves that corner out and the link lands off to one side. The
+    # page's coordinates do not depend on its turn, and unturned it gets the
+    # corner right - so the link goes in with the page briefly unturned.
+    turn = page.rotation
+    if turn:
+        page.set_rotation(0)
+    try:
+        page.insert_link(link)
+    finally:
+        if turn:
+            page.set_rotation(turn)
     return {"ok": True}
 
 

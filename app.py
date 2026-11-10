@@ -7,11 +7,19 @@ import os
 import sys
 import time
 
-import webview
+try:
+    import webview
 
-from backend import (foreground, shell_integration, single_instance, titlebar,
-                     version)
-from backend.api import Api
+    from backend import (foreground, shell_integration, single_instance, titlebar,
+                         version)
+    from backend.api import Api
+except BaseException as _missing:                            # noqa: BLE001
+    # In a windowed build an uncaught error opens a dialog and waits for a
+    # click, so a build's self-test would hang instead of failing.
+    if "--selftest" in sys.argv or "--smoketest" in sys.argv:
+        print("SELFTEST/SMOKETEST: FAIL %s: %s" % (type(_missing).__name__, _missing))
+        raise SystemExit(1)
+    raise
 
 APP_NAME = version.APP_NAME
 
@@ -23,6 +31,22 @@ def _base_dir() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 
+def _failing_closed(test):
+    """A test that prints FAIL and returns 1 whatever goes wrong inside it.
+
+    In a windowed build an escaped exception opens a dialog that waits for a
+    click, which hangs the build script instead of failing it.
+    """
+    def run() -> int:
+        try:
+            return test()
+        except BaseException as exc:                         # noqa: BLE001
+            print("%s: FAIL %s: %s" % (test.__name__.upper(), type(exc).__name__, exc))
+            return 1
+    return run
+
+
+@_failing_closed
 def selftest() -> int:
     """Headless check that a packaged build has everything it needs.
 
@@ -34,7 +58,12 @@ def selftest() -> int:
 
     print("base dir:", _base_dir())
     print("environment:", shell_integration.environment())
-    print("ui present:", os.path.isfile(os.path.join(_base_dir(), "ui", "index.html")))
+    ui = os.path.isfile(os.path.join(_base_dir(), "ui", "index.html"))
+    print("ui present:", ui)
+    if not ui:
+        # A copy that lost its window's files opens a blank window.
+        print("SELFTEST: FAIL (no ui)")
+        return 1
     status = convert.ocr_status()
     print("ocr status:", status)
     if not status.get("available"):
@@ -57,6 +86,7 @@ def selftest() -> int:
     return 0 if ok else 1
 
 
+@_failing_closed
 def smoketest() -> int:
     """Every feature that leans on a bundled library, run inside the build.
 
@@ -69,7 +99,7 @@ def smoketest() -> int:
     import zipfile
 
     import pymupdf as fitz
-    from backend import convert, decorate, textedit
+    from backend import compare, convert, decorate, signatures, textedit
 
     out = tempfile.mkdtemp(prefix="platen-smoke-")
     doc = fitz.open()
@@ -112,12 +142,20 @@ def smoketest() -> int:
         and zipped(target("a.xlsx"), "xl/", "Deposit"))
     run("PowerPoint (python-pptx)", lambda: convert.to_pptx(doc, target("a.pptx")) is not None
         and zipped(target("a.pptx"), "ppt/slides/", "Willmore"))
-    run("images (Pillow)", lambda: convert.to_images(doc, out, 72, "png")
+    run("page images", lambda: convert.to_images(doc, out, 72, "png")
         and any(n.endswith(".png") for n in os.listdir(out)))
     run("plain text", lambda: convert.to_text(doc, target("a.txt")) is not None
         and "Willmore" in open(target("a.txt"), encoding="utf-8").read())
-    run("compress (pikepdf)", lambda: convert.compress(doc, target("small.pdf"), "high")
-        and "Willmore" in fitz.open(target("small.pdf"))[0].get_text())
+    def compress():
+        # A photo too big for the level, so Pillow decodes a JPEG and resamples it.
+        photo = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 2400, 1600), False)
+        photo.set_rect(photo.irect, (40, 90, 160))
+        copy = fitz.open(stream=doc.tobytes(), filetype="pdf")
+        copy[0].insert_image(fitz.Rect(72, 300, 312, 460), stream=photo.tobytes("jpeg"))
+        result = convert.compress(copy, target("small.pdf"), "medium")
+        return result["images_resampled"] == 1 and \
+            "Willmore" in fitz.open(target("small.pdf"))[0].get_text()
+    run("compress (Pillow)", compress)
 
     def edit():
         copy = fitz.open(stream=doc.tobytes(), filetype="pdf")
@@ -126,7 +164,36 @@ def smoketest() -> int:
                     for s in l["spans"] if "Embedded" in s["text"])
         textedit.edit_span(copy, span["id"], "Embedded font line, edited")
         return "edited" in fitz.open(stream=copy.tobytes(), filetype="pdf")[0].get_text()
-    run("edit text (fontTools)", edit)
+    run("edit text (embedded font)", edit)
+
+    def typed():
+        # Typed signatures need Pillow's FreeType; placing one on a turned page
+        # needs it to rotate the picture.
+        faces = signatures.fonts()
+        if not faces:
+            raise RuntimeError("no handwriting font on this PC to try")
+        png = signatures.render_typed("Willmore", faces[0]["id"])
+        copy = fitz.open()
+        copy.new_page().set_rotation(90)
+        signatures.place_picture(copy, 0, fitz.Rect(100, 100, 300, 180), png, "Smoke")
+        return png.startswith(b"\x89PNG") and len(list(copy[0].annots())) == 1
+    run("typed signature (Pillow FreeType)", typed)
+
+    def windows():
+        import win32com.client  # noqa: F401  - Office to PDF
+        import win32print  # noqa: F401
+        import win32ui  # noqa: F401
+        from PIL import ImageWin  # noqa: F401  - printing
+        # Imported only: asking a printer anything can block the whole process.
+        return True
+    run("printing, Office (pywin32)", windows)
+
+    def differences():
+        newer = fitz.open(stream=doc.tobytes(), filetype="pdf")
+        newer[0].insert_text((72, 300), "An added line", fontsize=12)
+        result = compare.compare(doc, newer, visual=True)
+        return bool(result["pages"][0]["added_rects"])
+    run("compare (numpy)", differences)
 
     def stamp():
         copy = fitz.open(stream=doc.tobytes(), filetype="pdf")
@@ -195,7 +262,7 @@ def main() -> None:
             print(message)
         raise SystemExit(1)
 
-    startup = [a for a in sys.argv[1:] if os.path.isfile(a)]
+    startup = [os.path.abspath(a) for a in sys.argv[1:] if os.path.isfile(a)]
 
     # Hand the file to a copy that is already running rather than starting a
     # second one; this is what keeps Explorer from spawning a process per file.
@@ -226,7 +293,15 @@ def main() -> None:
     titlebar.attach(window)
 
     if startup:
-        api._startup_paths = [os.path.abspath(path) for path in startup]
+        api._startup_paths = startup
+
+    # Not left standing in the install folder: a browser opened from a link
+    # here inherits it, and Windows will not replace a folder some process
+    # is standing in - so the next update would fail as "in use".
+    try:
+        os.chdir(os.path.expanduser("~"))
+    except OSError:
+        pass
 
     MB_YESNOCANCEL = 0x03
     MB_ICONWARNING = 0x30

@@ -21,6 +21,17 @@ if ($log -notmatch 'SELFTEST: PASS') {
     Write-Host "The build failed its self-test. Not packaging a broken exe." -ForegroundColor Red
     exit 1
 }
+# build.ps1 refuses a build that fails this, but leaves it in dist - so a
+# package run straight after, or later, would ship it. Checked again here.
+# Converting to Word writes to stderr; under Stop, 2>&1 would make that fatal.
+$ErrorActionPreference = "Continue"
+$log = (& "$app\PlatenPDF.exe" --smoketest 2>&1 | ForEach-Object { "$_" } | Out-String).Trim()
+$ErrorActionPreference = "Stop"
+Write-Host $log
+if ($log -notmatch 'SMOKETEST: PASS') {
+    Write-Host "The build failed its smoke test. Not packaging it." -ForegroundColor Red
+    exit 1
+}
 
 $stage = "dist\_stage"
 if (Test-Path $stage) { Remove-Item -LiteralPath $stage -Recurse -Force }

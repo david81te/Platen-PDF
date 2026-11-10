@@ -59,6 +59,15 @@ def style_of(name: str) -> tuple[bool, bool]:
     return bold, italic
 
 
+# PyMuPDF's names for the styled base-14 faces. Building them from the stem
+# ("helvb") named fonts that do not exist, and bold fell back to regular.
+_BASE14_STYLED = {
+    ("helv", True, False): "hebo", ("helv", False, True): "heit", ("helv", True, True): "hebi",
+    ("tiro", True, False): "tibo", ("tiro", False, True): "tiit", ("tiro", True, True): "tibi",
+    ("cour", True, False): "cobo", ("cour", False, True): "coit", ("cour", True, True): "cobi",
+}
+
+
 def base14_for(name: str, bold: bool = False, italic: bool = False) -> str:
     low = normalize(name).lower()
     stem = "helv"
@@ -66,14 +75,32 @@ def base14_for(name: str, bold: bool = False, italic: bool = False) -> str:
         if needle in low:
             stem = target
             break
-    if stem in ("symb", "zadb"):
-        return stem
-    suffix = ""
-    if bold:
-        suffix += "b"
-    if italic:
-        suffix += "i"
-    return stem + suffix if suffix else stem
+    return _BASE14_STYLED.get((stem, bool(bold), bool(italic)), stem)
+
+
+# Installed fonts that reach past Latin, in order: Arial and Segoe UI cover
+# Greek, Cyrillic, Hebrew, Arabic and most punctuation; the rest East Asian.
+UNICODE_FONTS = ("arial.ttf", "segoeui.ttf", "msyh.ttc", "malgun.ttf", "msgothic.ttc")
+
+
+@lru_cache(maxsize=1)
+def unicode_fonts() -> tuple[str, ...]:
+    folder = WINDOWS_FONT_DIRS[0]
+    return tuple(os.path.join(folder, name) for name in UNICODE_FONTS
+                 if os.path.isfile(os.path.join(folder, name)))
+
+
+def unicode_font_for(text: str) -> str | None:
+    """An installed font that can draw every character of `text`, if any."""
+    wanted = {ord(ch) for ch in text if not ch.isspace()}
+    for path in unicode_fonts():
+        try:
+            font = fitz.Font(fontfile=path)
+        except Exception:
+            continue
+        if all(font.has_glyph(cp) for cp in wanted):
+            return path
+    return None
 
 
 @lru_cache(maxsize=1)
@@ -223,20 +250,10 @@ def css_family(font_name: str) -> str:
 
 LIGATURES = {0xFB00: "ff", 0xFB01: "fi", 0xFB02: "fl", 0xFB03: "ffi", 0xFB04: "ffl"}
 
-# Ascending order matters: the first codepoint claiming a glyph wins, so U+0020
-# beats U+00A0 for the space glyph.
-_CODEPOINT_RANGES = (
-    (0x0020, 0x007E),  # ASCII
-    (0x00A0, 0x00FF),  # Latin-1 supplement
-    (0x0100, 0x017F),  # Latin Extended-A
-    (0x0192, 0x0192),
-    (0x02C6, 0x02DD),
-    (0x2013, 0x2026),  # dashes, quotes, ellipsis
-    (0x2030, 0x2044),
-    (0x20A0, 0x20BF),  # currency
-    (0x2122, 0x2122),
-    (0x2202, 0x22C5),  # light maths
-)
+# Every character the font has, in ascending order: the first codepoint
+# claiming a glyph wins, so U+0020 beats U+00A0 for the space glyph. A fixed
+# list of Latin ranges left Cyrillic, Greek and the rest unmapped, and they
+# came out of search and copy as glyph numbers.
 
 CMAP_HEADER = """/CIDInit /ProcSet findresource begin
 12 dict begin
@@ -258,14 +275,19 @@ end
 
 def _glyph_to_text(font) -> dict[int, str]:
     mapping: dict[int, str] = {}
-    for low, high in _CODEPOINT_RANGES:
-        for cp in range(low, high + 1):
-            try:
-                gid = font.has_glyph(cp)
-            except Exception:
-                continue
-            if gid:
-                mapping.setdefault(gid, chr(cp))
+    try:
+        codepoints = sorted(font.valid_codepoints())
+    except Exception:
+        codepoints = list(range(0x20, 0x250))
+    for cp in codepoints:
+        if cp < 0x20 or 0xD800 <= cp <= 0xDFFF or cp in LIGATURES:
+            continue
+        try:
+            gid = font.has_glyph(cp)
+        except Exception:
+            continue
+        if gid:
+            mapping.setdefault(gid, chr(cp))
     for cp, expansion in LIGATURES.items():
         try:
             gid = font.has_glyph(cp)

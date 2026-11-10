@@ -223,6 +223,12 @@ try:
           job.get("error", ""), lambda e: "did not match" in e)
     check("and is not offered for install", job["stage"], "failed")
 
+    # The digest is what proves the file is the one published; without one
+    # there is nothing to check it against.
+    job = attempt("good.zip", good, digest=None)
+    check("a release with no published digest is refused",
+          job.get("error", ""), lambda e: "did not match" in e)
+
     job = attempt("good.zip", good, size=good["size"] + 1)
     check("a short download is refused", job.get("error", ""), lambda e: "incomplete" in e)
 

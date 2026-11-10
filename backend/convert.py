@@ -613,11 +613,15 @@ def ocr(doc: fitz.Document, language: str = "eng", dpi: int = 220,
             height = max(1.0, y1 - y0)
             unit = helv.text_length(text, fontsize=1.0) or 1.0
             size = max(1.0, min(width / unit, height * 1.2))
+            # The picture recognised was the page as shown; on a turned page
+            # the words go in at their unturned place, running across it.
+            at = fitz.Point(x0, y1 - height * 0.18)
             page.insert_text(
-                fitz.Point(x0, y1 - height * 0.18),
+                at * page.derotation_matrix if page.rotation else at,
                 text,
                 fontname="helv",
                 fontsize=size,
+                rotate=page.rotation,
                 render_mode=3,  # invisible: selectable and searchable only
             )
             words += 1
@@ -636,10 +640,15 @@ LEVELS = {"low": (0, 92), "medium": (1600, 78), "high": (1100, 60)}
 
 
 def compress(doc: fitz.Document, path: str, level: str = "medium") -> dict:
-    """Shrink the file by downsampling images and subsetting fonts."""
+    """Shrink the file by downsampling images and subsetting fonts.
+
+    Works on a copy: the open document keeps its full images, and its whole
+    fonts, which editing its text may still need.
+    """
     if level not in LEVELS:
         level = "medium"
     max_side, quality = LEVELS[level]
+    doc = fitz.open(stream=doc.tobytes(), filetype="pdf")
     shrunk = 0
     if max_side:
         from PIL import Image
@@ -647,10 +656,15 @@ def compress(doc: fitz.Document, path: str, level: str = "medium") -> dict:
         seen = set()
         for index in range(doc.page_count):
             for info in doc[index].get_images(full=True):
-                xref = info[0]
+                xref, smask, bpc, space = info[0], info[1], info[4], info[5]
                 if xref in seen:
                     continue
                 seen.add(xref)
+                # Left as they are: a JPEG has no transparency, so an image
+                # with a mask would turn its clear parts black, and a
+                # one-bit scan or stencil gets bigger and blurred as a JPEG.
+                if smask or bpc == 1 or not space:
+                    continue
                 try:
                     raw = doc.extract_image(xref)
                     image = Image.open(io.BytesIO(raw["image"]))
@@ -662,7 +676,9 @@ def compress(doc: fitz.Document, path: str, level: str = "medium") -> dict:
                          max(1, int(image.height * ratio))), Image.LANCZOS)
                     buffer = io.BytesIO()
                     image.save(buffer, format="JPEG", quality=quality, optimize=True)
-                    doc.replace_image(xref, stream=buffer.getvalue())
+                    # A page's method, not the document's; it replaces the
+                    # image wherever it is used.
+                    doc[index].replace_image(xref, stream=buffer.getvalue())
                     shrunk += 1
                 except Exception:
                     continue

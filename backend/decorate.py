@@ -19,14 +19,23 @@ def _selected(doc: fitz.Document, pages: list[int] | None) -> list[int]:
     return [p for p in pages if 0 <= p < doc.page_count]
 
 
-def _bind(page: fitz.Page, font_name: str) -> tuple[str, fitz.Font]:
+def _bind(page: fitz.Page, font_name: str, text: str = "") -> tuple[str, fitz.Font]:
     path = fontmod.local_font_path(font_name)
     if path:
         try:
-            page.insert_font(fontname="ZD1", fontfile=path)
-            return "ZD1", fitz.Font(fontfile=path)
+            font = fitz.Font(fontfile=path)
+            if all(font.has_glyph(ord(ch)) for ch in text if not ch.isspace()):
+                page.insert_font(fontname="ZD1", fontfile=path)
+                return "ZD1", font
         except Exception:
             pass
+    # A base-14 font is written in a one-byte encoding: an en dash, curly
+    # quotes, a euro sign or any non-Latin letter came out as a dot.
+    if any(ord(ch) > 0xFF for ch in text):
+        wide = fontmod.unicode_font_for(text)
+        if wide:
+            page.insert_font(fontname="ZD2", fontfile=wide)
+            return "ZD2", fitz.Font(fontfile=wide)
     alias = fontmod.base14_for(font_name)
     page.insert_font(fontname=alias)
     return alias, fitz.Font(fontname=alias)
@@ -40,7 +49,7 @@ def watermark_text(doc: fitz.Document, text: str, pages: list[int] | None = None
     for index in _selected(doc, pages):
         page = doc[index]
         before = fontmod.page_font_xrefs(doc, index)
-        alias, font = _bind(page, font_name)
+        alias, font = _bind(page, font_name, text)
         width = font.text_length(text, fontsize=size)
         centre = fitz.Point(page.rect.width / 2, page.rect.height / 2)
         page.insert_text(
@@ -161,7 +170,10 @@ def remove_stamps(doc: fitz.Document, kind: str, pages: list[int] | None = None)
     for index in _selected(doc, pages):
         found = False
         for xref in doc[index].get_contents():
-            data = doc.xref_stream(xref) or b""
+            try:
+                data = doc.xref_stream(xref) or b""
+            except Exception:
+                continue        # a dangling reference, which MuPDF draws as nothing
             cleaned, hits = _strip_stamps(data, kind)
             if hits:
                 doc.update_stream(xref, cleaned)
@@ -233,15 +245,15 @@ def stamp(doc: fitz.Document, kind: str, fields: dict[str, str],
     for ordinal, index in enumerate(targets):
         page = doc[index]
         before = fontmod.page_font_xrefs(doc, index)
-        alias, font = _bind(page, font_name)
         values = dict(shared, page=str(index + start_at), n=str(ordinal + start_at),
                       bates=bates_label(first_bates + ordinal, bates.get("prefix", ""),
                                         bates.get("digits", 6), bates.get("suffix", "")))
+        filled = {position: _fill(template, values) for position, template in fields.items()}
+        alias, font = _bind(page, font_name, "".join(filled.values()))
         shown = page.rect
         shape = page.new_shape()
         existing = set(page.get_contents())
-        for position, template in fields.items():
-            text = _fill(template, values)
+        for position, text in filled.items():
             if not text.strip():
                 continue           # {file} on a document never saved, say
             width = font.text_length(text, fontsize=size)

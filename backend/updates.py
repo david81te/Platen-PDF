@@ -199,11 +199,26 @@ def install_target() -> str | None:
     folder = os.path.dirname(os.path.abspath(sys.executable))
     if not os.path.isfile(os.path.join(folder, "Uninstall Platen PDF.cmd")):
         return None
+    # Started by its short 8.3 name, the path says PLATEN~1: the installer
+    # then moved the real folder aside and built one literally called that,
+    # leaving the shortcuts and the uninstaller pointing at nothing.
+    try:
+        import win32api
+        folder = win32api.GetLongPathName(folder)
+    except Exception:
+        pass
     return folder
 
 
-class UpdateError(Exception):
-    """A reason, worded for the person, that the update stopped."""
+class UpdateError(ValueError):
+    """A reason, worded for the person, that the update stopped.
+
+    A ValueError, so the window shows the words alone, as it does other refusals.
+    """
+
+
+FRESH_ENOUGH = 10 * 60       # seconds a remembered release is trusted to install
+HELPER_START = 20            # seconds the helper has to show it is running
 
 
 _job: dict = {"stage": "idle"}      # idle | downloading | checking | ready | failed
@@ -223,9 +238,15 @@ def progress() -> dict:
 def start_download() -> dict:
     """Fetch and prove the newer release in the background; poll progress()."""
     state = _state()
-    if not (state.get("asset") or {}).get("url"):
-        # Remembered by a version that did not keep the download's details.
-        check(force=True)
+    if not (state.get("asset") or {}).get("url") or \
+            time.time() - float(state.get("checked") or 0) > FRESH_ENOUGH:
+        # Remembered by a version that did not keep the download's details,
+        # or long enough ago that the file may have been replaced since: a
+        # remembered digest would then refuse the right download for a day.
+        try:
+            check(force=True)
+        except Exception:
+            pass
         state = _state()
     latest, asset = state.get("latest"), state.get("asset")
     if not (latest and is_newer(latest, version.VERSION)):
@@ -296,7 +317,8 @@ def _download_and_check(tag: str, asset: dict) -> str:
     if expected_size and received != expected_size:
         raise UpdateError("The download was incomplete. Try again.")
     expected = (asset.get("digest") or "").lower()
-    if expected.startswith("sha256:") and digest.hexdigest() != expected[7:]:
+    # No digest, no install: it is what proves the file is the one published.
+    if not expected.startswith("sha256:") or digest.hexdigest() != expected[7:]:
         raise UpdateError("The download did not match the published release, "
                           "so it was not installed.")
 
@@ -368,6 +390,20 @@ function Tell([string]$text) {
 # process's own folder is the one Windows holds.
 Set-Location -LiteralPath $PSScriptRoot
 [Environment]::CurrentDirectory = $PSScriptRoot
+# Platen PDF waits for this before it closes: if the helper never runs - a
+# policy that blocks scripts, say - the window stays open and says so.
+Set-Content -LiteralPath (Join-Path $PSScriptRoot 'started') -Value $PID
+$exe = Join-Path $p.destination 'PlatenPDF.exe'
+# Whatever stops the update, the copy that was closed for it comes back.
+function Reopen {
+    if (-not $p.launch -or -not (Test-Path -LiteralPath $exe)) { return }
+    $files = @($p.reopen | ForEach-Object { '"' + $_ + '"' })
+    if ($files.Count) {
+        Start-Process -FilePath $exe -ArgumentList $files -WorkingDirectory $p.destination
+    } else {
+        Start-Process -FilePath $exe -WorkingDirectory $p.destination
+    }
+}
 try { Wait-Process -Id $p.wait_for -Timeout 120 -ErrorAction Stop } catch {}
 if (Get-Process -Id $p.wait_for -ErrorAction SilentlyContinue) {
     Tell ("Platen PDF did not close, so the update was not installed and " +
@@ -375,8 +411,10 @@ if (Get-Process -Id $p.wait_for -ErrorAction SilentlyContinue) {
     exit 1
 }
 # Another window of this copy may have opened meanwhile, with work in it.
+# Matched on the whole folder: "Platen PDF 2" is not "Platen PDF".
+$inside = $p.destination.TrimEnd('\') + '\'
 $others = Get-Process -Name 'PlatenPDF' -ErrorAction SilentlyContinue |
-    Where-Object { $_.Path -and $_.Path.StartsWith($p.destination, [StringComparison]::OrdinalIgnoreCase) }
+    Where-Object { $_.Path -and $_.Path.StartsWith($inside, [StringComparison]::OrdinalIgnoreCase) }
 if ($others) {
     Tell ("Another Platen PDF window is open, so the update was not installed and " +
           "nothing was changed.`n`nClose every Platen PDF window, then use " +
@@ -390,21 +428,16 @@ try {
     $_ | Out-File -LiteralPath $p.log -Append
     $code = 1
 }
-$exe = Join-Path $p.destination 'PlatenPDF.exe'
+# Started where its shortcut starts it, not in this work folder.
 if ($code -eq 0 -and (Test-Path -LiteralPath $exe)) {
-    if ($p.launch) {
-        # Started where its shortcut starts it, not in this work folder.
-        $files = @($p.reopen | ForEach-Object { '"' + $_ + '"' })
-        if ($files.Count) {
-            Start-Process -FilePath $exe -ArgumentList $files -WorkingDirectory $p.destination
-        } else {
-            Start-Process -FilePath $exe -WorkingDirectory $p.destination
-        }
-    }
+    Reopen
     exit 0
 }
-Tell ("The update could not be installed.`n`nTo install it yourself, run " +
-      "Install Platen PDF in:`n" + $p.setup + "`n`nDetails: " + $p.log)
+# The installer keeps the old copy when it fails, so that is reopened.
+Reopen
+Tell ("The update could not be installed, so the version you had is still " +
+      "in place.`n`nTo install it yourself, run Install Platen PDF in:`n" +
+      $p.setup + "`n`nDetails: " + $p.log)
 exit 1
 """
 
@@ -443,6 +476,9 @@ def launch_installer(reopen: list[str], destination: str | None = None,
     }
     plan_path = os.path.join(WORK_DIR, "plan.json")
     helper_path = os.path.join(WORK_DIR, "finish-update.ps1")
+    started = os.path.join(WORK_DIR, "started")
+    if os.path.exists(started):
+        os.remove(started)
     with open(plan_path, "w", encoding="utf-8") as handle:
         json.dump(plan, handle)
     with open(helper_path, "w", encoding="utf-8") as handle:
@@ -459,11 +495,23 @@ def launch_installer(reopen: list[str], destination: str | None = None,
     # and then failed, leaving no program at all.
     try:
         # Out of any job object too, so closing this process cannot take it along.
-        return subprocess.Popen(command, creationflags=hidden | breakaway,
-                                close_fds=True, cwd=WORK_DIR)
+        helper = subprocess.Popen(command, creationflags=hidden | breakaway,
+                                  close_fds=True, cwd=WORK_DIR)
     except OSError:
-        return subprocess.Popen(command, creationflags=hidden, close_fds=True,
-                                cwd=WORK_DIR)
+        helper = subprocess.Popen(command, creationflags=hidden, close_fds=True,
+                                  cwd=WORK_DIR)
+    # The window closes only once the helper has shown it is running. Closing
+    # regardless left nothing on screen when a policy stopped the script.
+    deadline = time.time() + HELPER_START
+    while not os.path.exists(started):
+        if helper.poll() is not None or time.time() > deadline:
+            if helper.poll() is None:
+                helper.kill()
+            raise UpdateError("The installer could not be started, so nothing was "
+                              "changed. Download the new version from the website "
+                              "instead.")
+        time.sleep(0.1)
+    return helper
 
 
 def other_copies(folder: str) -> int:

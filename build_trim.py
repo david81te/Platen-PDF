@@ -8,11 +8,16 @@ tools, the build tools themselves. None of it runs, and it was a fifth of the
 download. Each entry here is something no feature reaches; `--smoketest`
 runs every feature inside the build to keep it that way.
 """
+import glob
+import importlib.util
+import os
 import re
 
 # Packages, and parts of packages, that nothing in the program imports.
 MODULES = (
     "setuptools", "pkg_resources", "PyInstaller", "_pyinstaller_hooks_contrib",
+    # Only the form-filling test builds PDFs with it; the program never imports it.
+    "pikepdf",
     # Model conversion, quantisation and GPU diagnostics; OCR only runs models.
     "onnxruntime.transformers", "onnxruntime.tools", "onnxruntime.quantization",
     "shapely.tests",
@@ -35,6 +40,19 @@ SUFFIXES = (".c", ".cpp", ".h", ".hpp", ".pyx", ".pxd", ".pyi", ".lib")
 
 def wanted_module(name: str) -> bool:
     return not any(name == m or name.startswith(m + ".") for m in MODULES)
+
+
+def notices() -> list[tuple[str, str]]:
+    """Licence files that collecting a package's code leaves behind.
+
+    OpenCV is not collected whole - PyInstaller's own hook finds its code - and
+    its licence and third-party notices were missing from the build.
+    """
+    found = []
+    spec = importlib.util.find_spec("cv2")
+    for folder in (spec.submodule_search_locations or []) if spec else []:
+        found += [(path, "cv2") for path in glob.glob(os.path.join(folder, "LICENSE*.txt"))]
+    return found
 
 
 def _as_module(dest: str) -> str:

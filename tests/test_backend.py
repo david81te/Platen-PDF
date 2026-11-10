@@ -262,6 +262,35 @@ check("edit -> Word round trip", docx_roundtrip)
 check("office -> pdf", lambda: convert.from_files([DOCX]).page_count)
 check("images -> pdf", lambda: convert.from_files([sig_png]).page_count)
 check("compress", lambda: convert.compress(fresh(), os.path.join(OUT, "small.pdf"), "high")["size"])
+
+
+def compress_images():
+    # It called a method the document does not have, inside a try that hid it:
+    # no image was ever made smaller. And it worked on the open document, so
+    # the file still being edited lost its fonts' unused characters.
+    import numpy as np
+    doc = fitz.open()
+    noise = np.random.default_rng(1).integers(0, 255, (1600, 2400, 3), dtype=np.uint8)
+    doc.new_page().insert_image(fitz.Rect(72, 72, 312, 232), stream=fitz.Pixmap(
+        fitz.csRGB, 2400, 1600, noise.tobytes(), False).tobytes("png"))
+    clear = np.zeros((2000, 2000, 4), np.uint8)
+    clear[600:1400, 600:1400] = (255, 0, 0, 255)
+    page = doc.new_page()
+    page.draw_rect(page.rect, fill=(0, 0, 1))
+    page.insert_image(fitz.Rect(100, 100, 400, 400),
+                      pixmap=fitz.Pixmap(fitz.csRGB, 2000, 2000, clear.tobytes(), True))
+    doc = fitz.open(stream=doc.tobytes(), filetype="pdf")
+    path = os.path.join(OUT, "small_images.pdf")
+    result = convert.compress(doc, path, "medium")
+    small = fitz.open(path)
+    assert result["images_resampled"] == 1, result
+    assert small[0].get_images(full=True)[0][2] == 1600, "the photo was not made smaller"
+    assert doc[0].get_images(full=True)[0][2] == 2400, "the open document was changed"
+    assert small[1].get_pixmap().pixel(110, 110) == (0, 0, 255), "transparency was lost"
+    return "photo 2400 -> 1600 px, open document untouched, transparency kept"
+
+
+check("compress shrinks images", compress_images)
 check("ocr engine is built in", lambda: convert.ocr_status()["available"],)
 
 print("\n== decoration ==")

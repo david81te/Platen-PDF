@@ -401,6 +401,7 @@ a.link:hover { text-decoration: underline; }
 
 /* ---- comparison ---- */
 .diff-add    { position: absolute; background: #3ec98a40; outline: 1px solid #2aa870; border-radius: 2px; pointer-events: none; }
+.diff-remove { position: absolute; background: #f2857a40; outline: 1px solid #d9534f; border-radius: 2px; pointer-events: none; }
 .diff-del    { position: absolute; background: #f2857f40; outline: 1px solid #d9564f; border-radius: 2px; pointer-events: none; }
 .diff-visual { position: absolute; outline: 1.5px dashed #6d94f5; border-radius: 3px; pointer-events: none; }
 

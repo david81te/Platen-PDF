@@ -6,7 +6,7 @@ from PyInstaller.utils.hooks import collect_all, collect_data_files
 sys.path.insert(0, SPECPATH)
 import build_trim  # noqa: E402  - what is left out of the download
 
-datas = [("ui", "ui"), ("assets/platenpdf.ico", "assets")]
+datas = [("ui", "ui"), ("assets/platenpdf.ico", "assets"), *build_trim.notices()]
 binaries = []
 hiddenimports = ["win32com.client", "pythoncom", "pywintypes"]
 
@@ -14,7 +14,7 @@ hiddenimports = ["win32com.client", "pythoncom", "pywintypes"]
 # rapidocr_onnxruntime carries the OCR models as package data, so collecting it
 # is what makes OCR work with nothing for the user to install.
 for package in ("webview", "pymupdf", "pdf2docx", "docx", "pptx", "openpyxl",
-                "fitz", "PIL", "pikepdf", "fontTools",
+                "fitz", "PIL", "fontTools",
                 "rapidocr_onnxruntime", "onnxruntime", "shapely", "pyclipper"):
     try:
         extra_datas, extra_binaries, extra_hidden = collect_all(package)

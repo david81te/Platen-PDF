@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import os
 
 import pymupdf as fitz
@@ -120,15 +121,38 @@ class Session:
     def _snapshot(self) -> bytes:
         return self.require().tobytes(garbage=0, deflate=True)
 
-    def checkpoint(self):
+    def checkpoint(self) -> bool:
         """Record the current state so the next mutation can be undone."""
         try:
             self._undo.append(self._snapshot())
         except Exception:
-            return
+            return False
         if len(self._undo) > MAX_UNDO:
             self._undo.pop(0)
         self._redo.clear()
+        return True
+
+    def rollback(self, recorded: bool) -> None:
+        """Put back the state the last checkpoint recorded, and forget it.
+
+        For a change that failed part way: it is undone at once instead of
+        being left half made, and a change that was refused leaves no undo
+        step that does nothing.
+        """
+        if recorded and self._undo:
+            self._restore(self._undo.pop())
+
+    @contextlib.contextmanager
+    def change(self):
+        """A change to the document that is made whole or not at all."""
+        doc = self.require()
+        recorded = self.checkpoint()
+        try:
+            yield doc
+        except BaseException:
+            self.rollback(recorded)
+            raise
+        self.touch()
 
     def touch(self):
         self.dirty = True
@@ -290,10 +314,16 @@ class Session:
                         if box.intersects(rect) and (box & rect).get_area() > 0)
                     if query not in covering:
                         continue
-                middle = (rect.y0 + rect.y1) / 2
+                # Lines run across the page as shown, which on a turned page
+                # is not across its coordinates.
+                turn = page.rotation_matrix if page.rotation else None
+                hit = rect * turn if turn else rect
+                middle = (hit.y0 + hit.y1) / 2
                 snippet = ""
                 for box, text in lines:
-                    if box.y0 - 1 <= middle <= box.y1 + 1 and box.x0 - 2 <= rect.x0:
+                    if turn:
+                        box = box * turn
+                    if box.y0 - 1 <= middle <= box.y1 + 1 and box.x0 - 2 <= hit.x0:
                         snippet = text
                         break
                 hits.append({

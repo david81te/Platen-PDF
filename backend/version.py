@@ -19,7 +19,6 @@ SOURCE = "https://github.com/david81te/Platen-PDF"
 # carry conditions; THIRD-PARTY.md has the full list.
 COMPONENTS = [
     ("PyMuPDF", "AGPL-3.0 or Artifex commercial"),
-    ("pikepdf", "MPL-2.0"),
     ("Pillow", "MIT-CMU"),
     ("RapidOCR + ONNX Runtime", "Apache-2.0 / MIT"),
     ("pdf2docx, python-docx, python-pptx, openpyxl", "MIT"),
