@@ -111,6 +111,16 @@ def _shown_items(page: fitz.Page, items, *keys):
     return items
 
 
+def window_title(name=None) -> str:
+    """What the title bar and the taskbar say: the document in front, then us.
+
+    Windows' own order ("Report.pdf - Platen PDF"), so a row of taskbar
+    buttons, Alt+Tab and the taskbar preview tell documents apart by name.
+    """
+    name = " ".join(str(name or "").split())[:200]
+    return "%s - %s" % (name, version.APP_NAME) if name else version.APP_NAME
+
+
 class Api:
     # pywebview walks the public attributes of this object to build its JS
     # bridge. Anything public that points at the native window recurses through
@@ -123,9 +133,25 @@ class Api:
         self._window = None
         self._startup_paths = []
         self._comparison = None      # last comparison result, kept for the UI
+        self._title = version.APP_NAME
 
     def attach_window(self, window):
         self._window = window
+
+    @endpoint(locked=False)
+    def window_title(self, name=None):
+        """Name the document in front on the title bar and the taskbar.
+
+        The window was created as plain "Platen PDF" and nothing ever renamed
+        it, so every open document looked the same from the taskbar. The page
+        calls this whenever the document in front changes; no name puts the
+        plain title back.
+        """
+        title = window_title(name)
+        if self._window is not None and title != self._title:
+            self._window.set_title(title)
+        self._title = title
+        return title
 
     # Every endpoint works against whichever tab is in front. Exposing this as
     # a property means the rest of the class needed no changes when multiple

@@ -184,9 +184,22 @@ function askPassword(info) {
     }, 'Open');
 }
 
+// The title bar and taskbar name the document in front. Sent one at a time,
+// in order: each call runs on its own thread in the backend, so two sent
+// together could land the wrong way round and leave a closed document's name.
+let titleAsked = null;
+let titleChain = Promise.resolve();
+function showTitle(name) {
+  name = name || null;
+  if (name === titleAsked) return;
+  titleAsked = name;
+  titleChain = titleChain.then(() => call('window_title', name)).catch(() => {});
+}
+
 function setInfo(info) {
   if (!info || info.cancelled) return;
   if (info.needs_password) { askPassword(info); return; }
+  showTitle(info.open === false ? null : info.name);
   if (info.open === false) {
     S.info = null;
     paneEl('stage').classList.remove('on');
@@ -3120,6 +3133,7 @@ async function focusPane(n) {
   // A pane that has just been emptied has no document to switch to, and the
   // backend quite rightly refuses to be told to switch to nothing.
   if (next.tab === null || next.tab === undefined) {
+    showTitle(S.info && S.info.name);
     refreshTabs();
     return;
   }
